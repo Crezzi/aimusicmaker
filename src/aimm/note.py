@@ -4,3 +4,5 @@ class Note:
         self.duration = duration
         self.start = start
         self.octave = octave
+
+# test
