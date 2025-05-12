@@ -2,11 +2,81 @@
 <html>
 <head>
   <title>My Site</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background-color: #f58f1b;
+      color: #32394d;
+    }
+
+    .header {
+      background-color: #f9f5f1;
+      color: #32394d;
+      padding: 40px 20px;
+      text-align: center;
+      font-size: 2.5em;
+    }
+
+    .navbar {
+      background-color: #f58f1b;
+      padding: 10px;
+      text-align: center;
+    }
+
+    .navbar button {
+      background-color: white;
+      color: #32394d;
+      border: none;
+      padding: 10px 20px;
+      margin: 0 10px;
+      font-size: 1em;
+      cursor: pointer;
+      border-radius: 5px;
+    }
+
+    .navbar button:hover {
+      background-color: #ddd;
+    }
+  </style>
+
+  <script>
+    function sayHello() {
+      alert("Thanks for clicking!");
+    }
+  </script>
 </head>
-<body style="background-color: #ac6f0d; color: blue;">
-  <h1>AI Music Maker</h1>
-  <p>by Jessica, Mihir and Niall </p>
-  <button>clicke me</button>
+<body>
+
+  <div class="header">
+    AI Music Maker
+  </div>
+
+  <div class="navbar">
+    <button onclick="sayHello()">Click Me</button>
+    <button onclick="alert('Generate clicked!')">Generate</button>
+    <button onclick="alert('Help clicked!')">Help</button>
+  </div>
+
+  <p style="text-align: center;">by Jessica, Mihir and Niall</p>
+
 </body>
 </html>
-git
+
+
+<!-- <!DOCTYPE html>
+<html>
+<head>
+  <title>My Site</title>
+  <script>
+    function sayHello() {
+      alert("thanks for clicking!")
+    }
+  </script>
+</head>
+<body style="background-color: #f58f1b; color: #32394d;">
+  <h1>AI Music Maker</h1>
+  <p>by Jessica, Mihir and Niall </p>
+  <button>click me</button>
+</body>
+</html> -->
