@@ -1,11 +1,9 @@
 import os
 from datetime import datetime, timedelta
 
+# from basic_pitch.train import main HOLY FUCK NO WAY THEY HAVE WHAT WE NEED
 from basic_pitch import ICASSP_2022_MODEL_PATH
 from basic_pitch.inference import predict
-
-# from basic_pitch.train import main HOLY FUCK NO WAY THEY HAVE WHAT WE NEED
-from pretty_midi import PrettyMIDI
 
 
 def audio_to_midi(audio_path: str, i: int):
