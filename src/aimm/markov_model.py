@@ -2,13 +2,14 @@ import os
 import pickle
 import random
 from collections import Counter, defaultdict
-from typing import Dict, List, Tuple, Optional, Set, DefaultDict, Counter as CounterType
+from typing import Counter as CounterType
+from typing import DefaultDict, Dict, List, Optional, Set, Tuple
 
-from pretty_midi import PrettyMIDI, Instrument, Note
+from pretty_midi import Instrument, Note, PrettyMIDI
 from pretty_midi.utilities import note_name_to_number, note_number_to_name
 
 
-class TimingAwareMarkovMidiGenerator:
+class MarkovMidi:
     """
     An improved Markov model for MIDI generation that considers timing information.
     This version tracks when notes are played relative to each other.
@@ -24,7 +25,7 @@ class TimingAwareMarkovMidiGenerator:
         self.order: int = order
         self.transitions: DefaultDict[Tuple[str, ...], CounterType[str]] = defaultdict(Counter)
         self.start_tokens: List[Tuple[str, ...]] = []
-        
+
         # Track the timing between notes
         self.timing_gaps: DefaultDict[Tuple[str, str], List[float]] = defaultdict(list)
 
@@ -65,7 +66,7 @@ class TimingAwareMarkovMidiGenerator:
 
         Args:
             directory_path: Path to directory containing MIDI files
-            
+
         Returns:
             List of all notes with timing extracted from the MIDI files
         """
@@ -107,7 +108,7 @@ class TimingAwareMarkovMidiGenerator:
 
         # Extract just the notes (without timing) for the Markov chain
         notes: List[str] = [note for note, _ in notes_with_timing]
-        
+
         # Store potential starting sequences
         for i in range(len(notes) - self.order):
             self.start_tokens.append(tuple(notes[i : i + self.order]))
@@ -122,20 +123,22 @@ class TimingAwareMarkovMidiGenerator:
 
             # Update transition counter
             self.transitions[current][next_note] += 1
-            
+
             # Record timing information between consecutive notes
             if i + self.order < len(notes_with_timing):
                 current_note = notes[i + self.order - 1]
                 current_time = notes_with_timing[i + self.order - 1][1]
                 next_time = notes_with_timing[i + self.order][1]
-                
+
                 # Calculate the time gap between these notes
                 time_gap = next_time - current_time
-                
+
                 # Store this timing information
                 self.timing_gaps[(current_note, next_note)].append(time_gap)
 
-        print(f"Model trained with {len(self.transitions)} unique sequences and {len(self.timing_gaps)} timing relationships")
+        print(
+            f"Model trained with {len(self.transitions)} unique sequences and {len(self.timing_gaps)} timing relationships"
+        )
 
     def generate_sequence(self, seed: Optional[List[str]] = None, num_notes: int = 100) -> List[Tuple[str, float]]:
         """
@@ -156,7 +159,7 @@ class TimingAwareMarkovMidiGenerator:
 
         # Choose a starting sequence
         if seed and len(seed) >= self.order:
-            current: Tuple[str, ...] = tuple(seed[-self.order:])
+            current: Tuple[str, ...] = tuple(seed[-self.order :])
         else:
             if not self.start_tokens:
                 raise ValueError("No start tokens available")
@@ -164,13 +167,13 @@ class TimingAwareMarkovMidiGenerator:
 
         # Add the starting sequence to the result
         result_notes.extend(current)
-        
+
         # Initialize timing for the starting sequence (arbitrary start at 0.0)
         current_time = 0.0
         for note in current:
             result_with_timing.append((note, current_time))
             # For initial sequence, use small default gaps
-            current_time += 0.25  
+            current_time += 0.25
 
         # Generate the rest of the notes
         for _ in range(num_notes - self.order):
@@ -185,7 +188,7 @@ class TimingAwareMarkovMidiGenerator:
                 # Determine timing for this note
                 prev_note = result_notes[-1]
                 timing_key = (prev_note, next_note)
-                
+
                 if timing_key in self.timing_gaps and self.timing_gaps[timing_key]:
                     # Use the learned timing between these specific notes
                     time_gap = random.choice(self.timing_gaps[timing_key])
@@ -201,30 +204,30 @@ class TimingAwareMarkovMidiGenerator:
                             time_gap = 0.25  # Default gap
                     except (ValueError, IndexError):
                         time_gap = 0.25  # Default gap
-                
+
                 # Calculate the new note's start time
                 new_time = result_with_timing[-1][1] + time_gap
-                
+
                 # Add the next note to the results
                 result_notes.append(next_note)
                 result_with_timing.append((next_note, new_time))
 
                 # Update the current sequence
-                current = tuple(result_notes[-self.order:])
+                current = tuple(result_notes[-self.order :])
             else:
                 # If we reach a dead end, choose a new random starting point
                 if not self.start_tokens:
                     break
-                    
+
                 new_start: Tuple[str, ...] = random.choice(self.start_tokens)
                 next_note = new_start[-1]
-                
+
                 # Add a slightly larger gap when transitioning to a new sequence
                 new_time = result_with_timing[-1][1] + 0.5 if result_with_timing else 0.0
-                
+
                 result_notes.append(next_note)
                 result_with_timing.append((next_note, new_time))
-                current = tuple(result_notes[-self.order:])
+                current = tuple(result_notes[-self.order :])
 
         return result_with_timing
 
@@ -249,16 +252,11 @@ class TimingAwareMarkovMidiGenerator:
             if len(parts) >= 2:  # At minimum we need pitch and duration
                 pitch: int = int(parts[0])
                 duration: float = float(parts[1])
-                
+
                 # Use velocity if available, otherwise default to 100
                 velocity: int = int(parts[2]) if len(parts) >= 3 else 100
 
-                note: Note = Note(
-                    velocity=velocity, 
-                    pitch=pitch, 
-                    start=start_time, 
-                    end=start_time + duration
-                )
+                note: Note = Note(velocity=velocity, pitch=pitch, start=start_time, end=start_time + duration)
 
                 instrument.notes.append(note)
 
@@ -272,10 +270,10 @@ class TimingAwareMarkovMidiGenerator:
     def save_model(self, filename: str = "timing_aware_markov_model.pkl") -> None:
         """Save the model to a file"""
         data: Dict = {
-            "order": self.order, 
-            "transitions": dict(self.transitions), 
+            "order": self.order,
+            "transitions": dict(self.transitions),
             "start_tokens": self.start_tokens,
-            "timing_gaps": {k: v for k, v in self.timing_gaps.items()}  # Convert to regular dict
+            "timing_gaps": {k: v for k, v in self.timing_gaps.items()},  # Convert to regular dict
         }
         with open(filename, "wb") as f:
             pickle.dump(data, f)
@@ -294,24 +292,26 @@ class TimingAwareMarkovMidiGenerator:
             self.transitions[k] = Counter(v)
 
         self.start_tokens = data["start_tokens"]
-        
+
         # Load timing information
         self.timing_gaps = defaultdict(list)
         for k, v in data["timing_gaps"].items():
             self.timing_gaps[k] = v
-            
+
         print(f"Model loaded from {filename}")
 
 
 # Example usage
-def timing_aware_markov_example(midi_directory: str, output_directory: str = "output") -> TimingAwareMarkovMidiGenerator:
+def timing_aware_markov_example(
+    midi_directory: str, output_directory: str = "output"
+) -> MarkovMidi:
     """
-    Example of using the TimingAwareMarkovMidiGenerator
-    
+    Example of using the MarkovMidi
+
     Args:
         midi_directory: Directory containing MIDI files
         output_directory: Directory to save outputs
-        
+
     Returns:
         Trained Markov model
     """
@@ -320,7 +320,7 @@ def timing_aware_markov_example(midi_directory: str, output_directory: str = "ou
     os.makedirs(output_directory, exist_ok=True)
 
     # Create and train the model
-    model: TimingAwareMarkovMidiGenerator = TimingAwareMarkovMidiGenerator(order=2)
+    model: MarkovMidi = MarkovMidi(order=2)
     model.train_on_midi_directory(midi_directory)
 
     # Save the model
@@ -330,7 +330,9 @@ def timing_aware_markov_example(midi_directory: str, output_directory: str = "ou
     generated_sequence = model.generate_sequence(num_notes=100)
 
     # Create a MIDI file
-    model.generate_midi(generated_sequence, output_file=os.path.join(output_directory, "timing_aware_markov_output.mid"))
+    model.generate_midi(
+        generated_sequence, output_file=os.path.join(output_directory, "timing_aware_markov_output.mid")
+    )
 
     return model
 
