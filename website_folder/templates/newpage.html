@@ -1,19 +1,68 @@
-!DOCTYPE html>
+<!DOCTYPE html>
 <html>
 <head>
   <title>New Page</title>
   <style>
     body {
-      background-color: #e0f7fa;
+      background-color: #f9f5f1;
       font-family: Arial, sans-serif;
+      color: #32394d;
+      margin: 0;
+    }
+
+    .header {
+      background-color: #32394d;
+      color: #f9f5f1;
+      padding: 60px 20px;
       text-align: center;
-      padding-top: 50px;
+      font-size: 2.5em;
+    }
+
+    .content {
+      text-align: center;
+      padding: 50px;
+    }
+
+    input[type="text"] {
+      padding: 10px;
+      font-size: 1em;
+      width: 60%;
+      border: none;
+      border-radius: 5px;
+      margin-bottom: 20px;
+    }
+
+    button {
+      background-color:  #32394d;
+      color: #f9f5f1;
+      padding: 10px 20px;
+      border: none;
+      border-radius: 5px;
+      font-size: 1em;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background-color: #e07b00;
+    }
+
+    a button {
+      margin-top: 30px;
     }
   </style>
 </head>
 <body>
-  <h1>Welcome to the New Page!</h1>
-  <p>This is where you can add more content.</p>
-  <a href="/"><button>Go Back Home</button></a>
+  <div class="header">
+    Generate New Music
+  </div>
+
+  <div class="content">
+    <p>Enter your prompt below:</p>
+    <input type="text" placeholder="Type your idea here..." />
+    <br>
+    <button>Submit</button>
+    <br>
+    <a href="/"><button>Go Back Home</button></a>
+  </div>
 </body>
 </html>
