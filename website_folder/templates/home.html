@@ -9,18 +9,36 @@
       background-color: #f58f1b;
       color: #32394d;
     }
-
+    .logo {
+      position: absolute;
+      top: 20px;
+      right: 30px;
+      height: 150px; 
+    }
     .header {
       background-color: #f9f5f1;
       color: #32394d;
-      padding: 80px 20px;
+      padding: 60px 20px 30px;
+      position: relative;
       text-align: center;
-      font-size: 2.5em;
     }
+
+    .header h1 {
+      font-size: 3.5em;
+      margin: 0;
+      text-align: left;
+    }
+
+    .header .byline {
+      font-size: 1.2em;
+      margin-top: 10px;
+    }
+
+   
 
     .navbar {
       background-color: #f58f1b;
-      padding: 10px;
+      padding: 20px;
       text-align: center;
     }
 
@@ -34,38 +52,24 @@
       cursor: pointer;
       border-radius: 5px;
     }
-    .logo {
-      position: absolute;
-      top: 10px;
-      right: 20px;
-      height: 60px;
-    }
+
     .navbar button:hover {
-      background-color: #ddd;
+      background-color: #32394d;
+      color: #f9f5f1;
     }
-
   </style>
-
-  <script>
-    function sayHello() {
-      alert("Thanks for clicking!");
-    }
-  </script>
 </head>
 <body>
-  <img class="logo" src="../static/logo.png"/>
   <div class="header">
-    AI Music Maker
-    <p style="text-align: center;">by Jessica, Mihir and Niall</p>
+    <img class="logo" src="../static/logo.png" alt="Logo"/>
+    <h1>AI Music Maker</h1>
+    <div class="byline">By Jessica, Mihir and Niall</div>
   </div>
- 
+
   <div class="navbar">
     <a href="/newpage"><button>Generate New Music</button></a>
     <button onclick="alert('Help clicked!')">Help</button>
   </div>
-
-
-
 </body>
 </html>
 

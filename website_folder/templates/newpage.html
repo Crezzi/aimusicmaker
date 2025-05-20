@@ -23,12 +23,9 @@
       padding: 50px;
     }
 
-    input[type="text"] {
+    input[type="file"] {
       padding: 10px;
       font-size: 1em;
-      width: 60%;
-      border: none;
-      border-radius: 5px;
       margin-bottom: 20px;
     }
 
@@ -46,8 +43,23 @@
       background-color: #e07b00;
     }
 
-    a button {
-      margin-top: 30px;
+    #loading {
+      display: none;
+      font-size: 1.2em;
+      margin-top: 20px;
+      color: #32394d;
+    }
+
+    #preview {
+      margin-top: 20px;
+    }
+
+    #preview img {
+      max-width: 150px;
+      max-height: 150px;
+      margin: 10px;
+      border-radius: 10px;
+      border: 2px solid #ccc;
     }
   </style>
 </head>
@@ -57,12 +69,43 @@
   </div>
 
   <div class="content">
-    <p>Enter your prompt below:</p>
-    <input type="text" placeholder="Type your idea here..." />
-    <br>
-    <button>Submit</button>
-    <br>
+    <p>Upload your audio or MIDI, files here:</p>
+
+    <form id="uploadForm" action="/upload" method="POST" enctype="multipart/form-data" onsubmit="showLoading()">
+      <input type="file" name="files" id="fileInput" multiple onchange="previewImages()" />
+      <br>
+      <button type="submit">Upload</button>
+    </form>
+
+    <div id="loading">Uploading... Please wait ⏳</div>
+
+    <div id="preview"></div>
+
     <a href="/"><button>Go Back Home</button></a>
   </div>
+
+  <script>
+    function showLoading() {
+      document.getElementById("loading").style.display = "block";
+    }
+
+    function previewImages() {
+      const preview = document.getElementById("preview");
+      const files = document.getElementById("fileInput").files;
+      preview.innerHTML = "";
+
+      for (const file of files) {
+        if (file.type.startsWith("image/")) {
+          const reader = new FileReader();
+          reader.onload = function(e) {
+            const img = document.createElement("img");
+            img.src = e.target.result;
+            preview.appendChild(img);
+          };
+          reader.readAsDataURL(file);
+        }
+      }
+    }
+  </script>
 </body>
 </html>
