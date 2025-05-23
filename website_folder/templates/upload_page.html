@@ -1,28 +1,25 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Loading...</title>
+  <title>Upload MIDI</title>
   <style>
     body {
       background-color: #f9f5f1;
       font-family: Arial, sans-serif;
       color: #32394d;
-      margin: 0;
       text-align: center;
       padding-top: 100px;
     }
 
-    .header {
-      font-size: 2.5em;
-      margin-bottom: 40px;
+    .upload-form {
+      margin-top: 50px;
     }
 
-    .loading-img {
-     width: 250px;
-     height: 250px;
+    input[type="file"] {
+      font-size: 1em;
     }
 
-    .cancel-btn {
+    button {
       background-color: #32394d;
       color: #f9f5f1;
       padding: 12px 24px;
@@ -30,22 +27,15 @@
       border: none;
       border-radius: 6px;
       cursor: pointer;
-      margin-top: 40px;
+      margin-top: 20px;
     }
 
-    .cancel-btn:hover {
+    button:hover {
       background-color: #e07b00;
     }
   </style>
 </head>
 <body>
-  <div class="header">Loading...</div>
-
-  <img src="{{ url_for('static', filename='loading.gif') }}" alt="Loading..." class="loading-img">
-
-  <br><br>
-  <a href="/newpage">
-    <button class="cancel-btn">Cancel</button>
-  </a>
-</body>
-</html>
+  <h1>Upload Your MIDI File</h1>
+  <div class="upload-form">
+    <form method="POST" enctype="multipart/form-data
