@@ -1,621 +1,311 @@
 import os
-import pickle
-import random
-from collections import Counter, defaultdict
-
-import matplotlib.pyplot as plt
 import numpy as np
 import pretty_midi
-import tensorflow as tf
-from tensorflow.python.keras.callbacks import EarlyStopping, ModelCheckpoint
-
-# from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
-# from tensorflow.keras.layers import LSTM, Dense, Dropout, Embedding
-# from tensorflow.keras.models import Sequential, load_model
-# from tensorflow.keras.utils import to_categorical
-from tensorflow.python.keras.layers import LSTM, Dense, Dropout, Embedding
-from tensorflow.python.keras.models import Sequential, load_model
-
-#from tensorflow.python.keras.utils import to_categorical
-from tqdm import tqdm
-
-#################################################
-# Part 1: MIDI Processing with PrettyMIDI
-#################################################
-
-
-class MidiProcessor:
-    def __init__(self, sequence_length=32, step=1):
-        """
-        Initialize the MIDI processor
-
-        Args:
-            sequence_length: Length of sequences for training
-            step: Step size for creating sequences
-        """
-        self.sequence_length = sequence_length
-        self.step = step
-        self.notes = []
-        self.note_to_int = {}
-        self.int_to_note = {}
-        self.vocab_size = 0
-
-    def extract_notes_from_midi(self, midi_file_path):
-        """
-        Extract notes from a MIDI file using PrettyMIDI
-
-        Args:
-            midi_file_path: Path to the MIDI file
-
-        Returns:
-            List of extracted notes/chords
-        """
-        try:
-            midi_data = pretty_midi.PrettyMIDI(midi_file_path)
-            notes = []
-
-            # Go through all instruments
-            for instrument in midi_data.instruments:
-                # Skip drum tracks
-                if not instrument.is_drum:
-                    for note in instrument.notes:
-                        # Encode note as: pitch_start-time_duration
-                        # This format captures more musical information
-                        encoded_note = f"{note.pitch}_{round(note.start, 2)}_{round(note.end - note.start, 2)}"
-                        notes.append(encoded_note)
-
-            # Sort notes by start time
-            notes.sort(key=lambda x: float(x.split("_")[1]))
-            return notes
-
-        except Exception as e:
-            print(f"Error processing {midi_file_path}: {e}")
-            return []
-
-    def extract_notes_simplified(self, midi_file_path):
-        """
-        Extract just the pitch values and durations from a MIDI file
-        (Simpler alternative to extract_notes_from_midi)
-        """
-        try:
-            midi_data = pretty_midi.PrettyMIDI(midi_file_path)
-            notes = []
-
-            # Go through all instruments
-            for instrument in midi_data.instruments:
-                # Skip drum tracks
-                if not instrument.is_drum:
-                    for note in instrument.notes:
-                        # Just encode pitch and duration
-                        encoded_note = f"{note.pitch}_{round(note.end - note.start, 2)}"
-                        notes.append(encoded_note)
-
-            return notes
-
-        except Exception as e:
-            print(f"Error processing {midi_file_path}: {e}")
-            return []
-
-    def process_midi_directory(self, directory_path):
-        """
-        Process all MIDI files in a directory
-
-        Args:
-            directory_path: Path to directory containing MIDI files
-        """
-        all_notes = []
-
-        # Find all MIDI files
-        midi_files = [
-            os.path.join(directory_path, f)
-            for f in os.listdir(directory_path)
-            if f.endswith(".mid") or f.endswith(".midi")
-        ]
-
-        print(f"Found {len(midi_files)} MIDI files")
-
-        # Process each file
-        for file_path in tqdm(midi_files):
-            notes = self.extract_notes_from_midi(file_path)
-            if notes:
-                all_notes.extend(notes)
-
-        print(f"Extracted {len(all_notes)} notes from all files")
-        self.notes = all_notes
-
-        # Create mappings
-        unique_notes = sorted(set(all_notes))
-        self.vocab_size = len(unique_notes)
-
-        print(f"Number of unique notes/events: {self.vocab_size}")
-
-        # Create dictionaries to map between notes and integers
-        self.note_to_int = {note: i for i, note in enumerate(unique_notes)}
-        self.int_to_note = {i: note for i, note in enumerate(unique_notes)}
-
-        return all_notes
-
-    def prepare_sequences(self):
-        """
-        Prepare input and output sequences for training
-
-        Returns:
-            X: Input sequences
-            y: Target sequences
-        """
-        # Create input sequences and corresponding outputs
-        network_input = []
-        network_output = []
-
-        # Create sequences
-        for i in range(0, len(self.notes) - self.sequence_length, self.step):
-            sequence_in = self.notes[i : i + self.sequence_length]
-            sequence_out = self.notes[i + self.sequence_length]
-
-            # Convert sequence to integers
-            network_input.append([self.note_to_int[note] for note in sequence_in])
-            network_output.append(self.note_to_int[sequence_out])
-
-        # Reshape and normalize input
-        n_patterns = len(network_input)
-        network_input = np.reshape(network_input, (n_patterns, self.sequence_length))
-
-        # One-hot encode the output
-        network_output = to_categorical(network_output, num_classes=self.vocab_size)
-
-        return network_input, network_output
-
-    def save_mappings(self, filename="note_mappings.pkl"):
-        """Save the note mappings to a file"""
-        data = {"note_to_int": self.note_to_int, "int_to_note": self.int_to_note, "vocab_size": self.vocab_size}
-        with open(filename, "wb") as f:
-            pickle.dump(data, f)
-
-    def load_mappings(self, filename="note_mappings.pkl"):
-        """Load the note mappings from a file"""
-        with open(filename, "rb") as f:
-            data = pickle.load(f)
-
-        self.note_to_int = data["note_to_int"]
-        self.int_to_note = data["int_to_note"]
-        self.vocab_size = data["vocab_size"]
-
-    def generate_midi_from_sequence(self, note_sequence, output_file="generated_output.mid"):
-        """
-        Convert a sequence of note representations back to a MIDI file
-
-        Args:
-            note_sequence: List of encoded notes
-            output_file: Output MIDI file path
-        """
-        # Create a PrettyMIDI object
-        midi = pretty_midi.PrettyMIDI()
-
-        # Create an instrument (piano)
-        instrument = pretty_midi.Instrument(program=0)  # 0 is piano
-
-        current_time = 0.0
-
-        # Add all notes
-        for encoded_note in note_sequence:
-            parts = encoded_note.split("_")
-
-            if len(parts) == 3:  # Full format: pitch_start-time_duration
-                pitch = int(parts[0])
-                start_time = float(parts[1])
-                duration = float(parts[2])
-
-                note = pretty_midi.Note(
-                    velocity=100, pitch=pitch, start=current_time, end=current_time + duration  # Default velocity
-                )
-                instrument.notes.append(note)
-                current_time += duration
-
-            elif len(parts) == 2:  # Simplified format: pitch_duration
-                pitch = int(parts[0])
-                duration = float(parts[1])
-
-                note = pretty_midi.Note(
-                    velocity=100, pitch=pitch, start=current_time, end=current_time + duration  # Default velocity
-                )
-                instrument.notes.append(note)
-                current_time += duration
-
-        # Add the instrument to the PrettyMIDI object
-        midi.instruments.append(instrument)
-
-        # Write the MIDI file
-        midi.write(output_file)
-        print(f"Generated MIDI file saved to {output_file}")
-
-
-#################################################
-# Part 2: LSTM/RNN Model for MIDI Generation
-#################################################
-
-
-class LSTMMidiGenerator:
-    def __init__(self, processor, model_path=None):
-        """
-        Initialize the LSTM/RNN model for MIDI generation
-
-        Args:
-            processor: MidiProcessor instance
-            model_path: Path to a pre-trained model (optional)
-        """
-        self.processor = processor
-        self.model = None
-
-        if model_path and os.path.exists(model_path):
-            self.load_model(model_path)
-
-    def build_model(self, lstm_units=256):
-        """
-        Build the LSTM model
-
-        Args:
-            lstm_units: Number of LSTM units
-        """
-        model = Sequential()
-
-        # Add LSTM layers
-        model.add(LSTM(lstm_units, input_shape=(self.processor.sequence_length, 1), return_sequences=True))
-        model.add(Dropout(0.3))
-
-        model.add(LSTM(lstm_units, return_sequences=True))
-        model.add(Dropout(0.3))
-
-        model.add(LSTM(lstm_units))
-        model.add(Dropout(0.3))
-
-        # Output layer
-        model.add(Dense(self.processor.vocab_size, activation="softmax"))
-
-        # Compile model
-        model.compile(loss="categorical_crossentropy", optimizer="adam")
-
-        self.model = model
-        return model
-
-    def build_simple_model(self, lstm_units=128):
-        """
-        Build a simpler LSTM model for quicker training
-
-        Args:
-            lstm_units: Number of LSTM units
-        """
-        model = Sequential()
-
-        # Add LSTM layer
-        model.add(LSTM(lstm_units, input_shape=(self.processor.sequence_length, 1)))
-        model.add(Dropout(0.2))
-
-        # Output layer
-        model.add(Dense(self.processor.vocab_size, activation="softmax"))
-
-        # Compile model
-        model.compile(loss="categorical_crossentropy", optimizer="adam")
-
-        self.model = model
-        return model
-
-    def train(self, network_input, network_output, epochs=50, batch_size=64, checkpoint_path="weights.best.h5"):
-        """
-        Train the LSTM model
-
-        Args:
-            network_input: Input sequences
-            network_output: Target sequences
-            epochs: Number of training epochs
-            batch_size: Batch size for training
-            checkpoint_path: Path to save model checkpoints
-        """
-        # Reshape input to be [samples, time steps, features]
-        network_input = np.reshape(network_input, (network_input.shape[0], network_input.shape[1], 1))
-
-        # Set up callbacks
-        checkpoint = ModelCheckpoint(checkpoint_path, monitor="loss", verbose=1, save_best_only=True, mode="min")
-
-        early_stopping = EarlyStopping(monitor="loss", patience=10, verbose=1)
-
-        callbacks_list = [checkpoint, early_stopping]
-
-        # Train the model
-        history = self.model.fit(
-            network_input, network_output, epochs=epochs, batch_size=batch_size, callbacks=callbacks_list
+import tf_keras
+from tf_keras import layers
+import glob
+import random
+from typing import List, Tuple, Optional, Union, Any
+
+
+def load_midi_file(file_path: str) -> Optional[pretty_midi.PrettyMIDI]:
+    """
+    Load a MIDI file and return a PrettyMIDI object.
+    Returns None if the file can't be loaded.
+    
+    Args:
+        file_path: Path to the MIDI file
+        
+    Returns:
+        PrettyMIDI object or None if loading fails
+    """
+    try:
+        midi_data = pretty_midi.PrettyMIDI(file_path)
+        return midi_data
+    except Exception as e:
+        print(f"Error loading {file_path}: {e}")
+        return None
+
+
+def extract_notes(midi_data: pretty_midi.PrettyMIDI, instrument_index: int = 0) -> List[Tuple[int, float, float]]:
+    """
+    Extract notes from the first instrument of a PrettyMIDI object.
+    
+    Args:
+        midi_data: PrettyMIDI object
+        instrument_index: Index of the instrument to extract notes from
+        
+    Returns:
+        List of (pitch, start_time, duration) tuples
+    """
+    if len(midi_data.instruments) == 0:
+        return []
+    
+    instrument = midi_data.instruments[instrument_index]
+    notes = []
+    
+    for note in instrument.notes:
+        notes.append((note.pitch, note.start, note.end - note.start))
+    
+    return sorted(notes, key=lambda x: x[1])  # Sort by start time
+
+
+def create_sequences(notes: List[Tuple[int, float, float]], sequence_length: int = 50) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Create sequences of notes for training.
+    
+    Args:
+        notes: List of (pitch, start_time, duration) tuples
+        sequence_length: Length of sequences to create
+        
+    Returns:
+        Tuple of (input_sequences, output_notes)
+    """
+    pitches = [note[0] for note in notes]
+    
+    network_input = []
+    network_output = []
+    
+    # Create sequences
+    for i in range(0, len(pitches) - sequence_length):
+        sequence_in = pitches[i:i + sequence_length]
+        sequence_out = pitches[i + sequence_length]
+        network_input.append(sequence_in)
+        network_output.append(sequence_out)
+    
+    # Reshape and normalize
+    n_patterns = len(network_input)
+    network_input = np.reshape(network_input, (n_patterns, sequence_length))
+    
+    # Normalize to values between 0 and 1
+    network_input = network_input / 128.0
+    
+    # One-hot encode outputs
+    network_output = tf_keras.utils.to_categorical(network_output, 128)
+    
+    return network_input, network_output
+
+
+def create_model(sequence_length: int = 50) -> tf_keras.Sequential:
+    """
+    Create an LSTM model for MIDI generation.
+    
+    Args:
+        sequence_length: Length of input sequences
+        
+    Returns:
+        Compiled tf_keras model
+    """
+    model = tf_keras.Sequential()
+    
+    # Add LSTM layers
+    model.add(layers.LSTM(256, input_shape=(sequence_length, 1), return_sequences=True))
+    model.add(layers.Dropout(0.3))
+    model.add(layers.LSTM(256, return_sequences=True))
+    model.add(layers.Dropout(0.3))
+    model.add(layers.LSTM(256))
+    model.add(layers.Dropout(0.3))
+    
+    # Output layer
+    model.add(layers.Dense(128, activation='softmax'))
+    
+    # Compile model
+    model.compile(loss='categorical_crossentropy', optimizer='adam')
+    
+    return model
+
+
+def train_model(
+    midi_files: List[str], 
+    sequence_length: int = 50, 
+    epochs: int = 50, 
+    batch_size: int = 64
+) -> Tuple[tf_keras.Sequential, List[Tuple[int, float, float]]]:
+    """
+    Train the model on a list of MIDI files.
+    
+    Args:
+        midi_files: List of paths to MIDI files
+        sequence_length: Length of sequences for training
+        epochs: Number of training epochs
+        batch_size: Batch size for training
+        
+    Returns:
+        Tuple of (trained_model, extracted_notes)
+    """
+    all_notes = []
+    
+    # Load and extract notes from all files
+    for file in midi_files:
+        midi_data = load_midi_file(file)
+        if midi_data:
+            notes = extract_notes(midi_data)
+            all_notes.extend(notes)
+    
+    # Process data for training
+    network_input, network_output = create_sequences(all_notes, sequence_length)
+    
+    # Reshape input for LSTM [samples, time steps, features]
+    network_input = np.reshape(network_input, (network_input.shape[0], network_input.shape[1], 1))
+    
+    # Create and train model
+    model = create_model(sequence_length)
+    model.fit(network_input, network_output, epochs=epochs, batch_size=batch_size)
+    
+    return model, all_notes
+
+
+def generate_notes(
+    model: tf_keras.Sequential, 
+    seed_notes: List[int], 
+    num_notes: int = 100, 
+    temperature: float = 1.0
+) -> List[int]:
+    """
+    Generate a sequence of notes using the trained model.
+    
+    Args:
+        model: Trained tf_keras model
+        seed_notes: Starting sequence of notes
+        num_notes: Number of notes to generate
+        temperature: Randomness factor (higher = more random)
+        
+    Returns:
+        List of generated note pitches
+    """
+    # Start with the seed sequence
+    pattern = seed_notes
+    prediction_output = []
+
+    # Generate notes
+    for _ in range(num_notes):
+        # Reshape the input
+        x = np.reshape(pattern, (1, len(pattern), 1))
+        x = x / 128.0  # Normalize
+        
+        # Generate prediction
+        prediction = model.predict(x)
+        
+        # Apply temperature for randomness
+        if temperature != 1.0:
+            prediction = np.log(prediction) / temperature
+            prediction = np.exp(prediction) / np.sum(np.exp(prediction))
+        
+        # Sample from the prediction
+        index = random.choices(range(128), weights=prediction[0], k=1)[0]
+        
+        # Add prediction to output
+        prediction_output.append(index)
+        
+        # Remove first element and append prediction for next iteration
+        pattern = np.append(pattern[1:], [index])
+    
+    return prediction_output
+
+
+def create_midi_from_notes(note_sequence: List[int], tempo: int = 120) -> pretty_midi.PrettyMIDI:
+    """
+    Create a MIDI file from a sequence of notes.
+    
+    Args:
+        note_sequence: List of MIDI note pitches
+        tempo: Tempo in beats per minute
+        
+    Returns:
+        PrettyMIDI object with the generated notes
+    """
+    # Create PrettyMIDI object
+    midi = pretty_midi.PrettyMIDI(initial_tempo=tempo)
+    
+    # Create instrument
+    instrument = pretty_midi.Instrument(program=0)  # Piano
+    
+    # Set the timing (quarter note length in seconds)
+    quarter_note_duration = 60.0 / tempo
+    note_duration = quarter_note_duration / 2  # Eighth notes
+    
+    # Add notes to the instrument
+    current_time = 0.0
+    for pitch in note_sequence:
+        note = pretty_midi.Note(
+            velocity=100,  # Velocity (volume)
+            pitch=pitch,
+            start=current_time,
+            end=current_time + note_duration
         )
-
-        return history
-
-    def generate_sequence(self, seed_sequence, num_notes_to_generate=100, temperature=1.0):
-        """
-        Generate a sequence of notes
-
-        Args:
-            seed_sequence: Initial sequence to seed the generation
-            num_notes_to_generate: Number of notes to generate
-            temperature: Controls randomness (higher = more random)
-
-        Returns:
-            List of generated notes
-        """
-        if not self.model:
-            raise ValueError("Model has not been built or loaded")
-
-        # Convert seed sequence to integer representation
-        pattern = [self.processor.note_to_int[note] for note in seed_sequence]
-        prediction_output = []
-
-        # Generate notes
-        for _ in range(num_notes_to_generate):
-            # Reshape pattern for prediction
-            x = np.reshape(pattern, (1, len(pattern), 1))
-            x = x / float(self.processor.vocab_size)  # Normalize
-
-            # Make prediction
-            prediction = self.model.predict(x, verbose=0)[0]
-
-            # Apply temperature
-            if temperature != 1.0:
-                prediction = np.log(prediction) / temperature
-                prediction = np.exp(prediction) / np.sum(np.exp(prediction))
-
-            # Convert prediction to index
-            index = self.sample_with_temperature(prediction, temperature)
-
-            # Get the note corresponding to the index
-            result = self.processor.int_to_note[index]
-            prediction_output.append(result)
-
-            # Update pattern
-            pattern.append(index)
-            pattern = pattern[1:]
-
-        return prediction_output
-
-    def sample_with_temperature(self, probabilities, temperature):
-        """
-        Sample an index from a probability array with temperature
-
-        Args:
-            probabilities: Array of probabilities
-            temperature: Temperature parameter
-
-        Returns:
-            Sampled index
-        """
-        if temperature == 0:
-            # If temperature is 0, return the most probable index
-            return np.argmax(probabilities)
-
-        # Convert to log probabilities
-        probabilities = np.asarray(probabilities).astype("float64")
-
-        # Apply temperature
-        probabilities = np.log(probabilities) / temperature
-        probabilities = np.exp(probabilities)
-        probabilities = probabilities / np.sum(probabilities)
-
-        # Sample from the distribution
-        choices = range(len(probabilities))
-        return np.random.choice(choices, p=probabilities)
-
-    def save_model(self, model_path="lstm_model.h5"):
-        """Save the model to a file"""
-        if self.model:
-            self.model.save(model_path)
-            print(f"Model saved to {model_path}")
-        else:
-            print("No model to save")
-
-    def load_model(self, model_path="lstm_model.h5"):
-        """Load the model from a file"""
-        if os.path.exists(model_path):
-            self.model = load_model(model_path)
-            print(f"Model loaded from {model_path}")
-        else:
-            print(f"Model file {model_path} does not exist")
-
-
-#################################################
-# Part 3: Markov Model for MIDI Generation
-#################################################
-
-
-class MarkovMidiGenerator:
-    def __init__(self, order=2):
-        """
-        Initialize the Markov model for MIDI generation
-
-        Args:
-            order: Order of the Markov model (how many previous notes to consider)
-        """
-        self.order = order
-        self.transitions = defaultdict(Counter)
-        self.start_tokens = []
-
-    def train(self, notes):
-        """
-        Train the Markov model on a sequence of notes
-
-        Args:
-            notes: List of notes
-        """
-        # Store potential starting sequences
-        for i in range(len(notes) - self.order):
-            self.start_tokens.append(tuple(notes[i : i + self.order]))
-
-        # Build transition probabilities
-        for i in range(len(notes) - self.order):
-            # Current sequence of notes
-            current = tuple(notes[i : i + self.order])
-
-            # Next note
-            next_note = notes[i + self.order]
-
-            # Update transition counter
-            self.transitions[current][next_note] += 1
-
-    def generate_sequence(self, seed=None, num_notes=100):
-        """
-        Generate a sequence of notes using the Markov model
-
-        Args:
-            seed: Optional starting sequence (if None, one will be chosen randomly)
-            num_notes: Number of notes to generate
-
-        Returns:
-            List of generated notes
-        """
-        result = []
-
-        # Choose a starting sequence
-        if seed and len(seed) >= self.order:
-            current = tuple(seed[-self.order :])
-        else:
-            current = random.choice(self.start_tokens)
-
-        # Add the starting sequence to the result
-        result.extend(current)
-
-        # Generate the rest of the notes
-        for _ in range(num_notes - self.order):
-            if current in self.transitions and self.transitions[current]:
-                # Get the possible next notes and their counts
-                next_notes = self.transitions[current]
-
-                # Choose the next note weighted by frequency
-                choices, weights = zip(*next_notes.items())
-                next_note = random.choices(choices, weights=weights, k=1)[0]
-
-                # Add the next note to the result
-                result.append(next_note)
-
-                # Update the current sequence
-                current = tuple(result[-self.order :])
-            else:
-                # If we reach a dead end, choose a new random starting point
-                new_start = random.choice(self.start_tokens)
-                result.append(new_start[-1])
-                current = tuple(result[-self.order :])
-
-        return result
-
-    def save_model(self, filename="markov_model.pkl"):
-        """Save the model to a file"""
-        data = {"order": self.order, "transitions": dict(self.transitions), "start_tokens": self.start_tokens}
-        with open(filename, "wb") as f:
-            pickle.dump(data, f)
-
-    def load_model(self, filename="markov_model.pkl"):
-        """Load the model from a file"""
-        with open(filename, "rb") as f:
-            data = pickle.load(f)
-
-        self.order = data["order"]
-        self.transitions = defaultdict(Counter)
-
-        # Convert back from regular dict to defaultdict(Counter)
-        for k, v in data["transitions"].items():
-            self.transitions[k] = Counter(v)
-
-        self.start_tokens = data["start_tokens"]
-
-
-#################################################
-# Part 4: Usage Example
-#################################################
-
-
-def lstm_training_pipeline(midi_dir, output_dir="output", sequence_length=32):
-    """Complete pipeline for training an LSTM model"""
-
-    # Create output directory if it doesn't exist
-    os.makedirs(output_dir, exist_ok=True)
-
-    # Initialize and process MIDI files
-    processor = MidiProcessor(sequence_length=sequence_length)
-    processor.process_midi_directory(midi_dir)
-
-    # Save mappings for later use
-    processor.save_mappings(os.path.join(output_dir, "note_mappings.pkl"))
-
-    # Prepare sequences for training
-    network_input, network_output = processor.prepare_sequences()
-
-    # Initialize and build the model
-    generator = LSTMMidiGenerator(processor)
-    generator.build_model()
-
-    # Train the model
-    checkpoint_path = os.path.join(output_dir, "lstm_weights.best.h5")
-    history = generator.train(network_input, network_output, epochs=50, batch_size=64, checkpoint_path=checkpoint_path)
-
-    # Save the complete model
-    generator.save_model(os.path.join(output_dir, "lstm_model.h5"))
-
-    # Plot training history
-    plt.figure(figsize=(10, 6))
-    plt.plot(history.history["loss"])
-    plt.title("Model Loss During Training")
-    plt.ylabel("Loss")
-    plt.xlabel("Epoch")
-    plt.savefig(os.path.join(output_dir, "training_loss.png"))
-
-    # Generate a sample
-    seed_sequence = processor.notes[:sequence_length]
-    generated_notes = generator.generate_sequence(seed_sequence, num_notes_to_generate=100)
-
-    # Create a MIDI file from the generated notes
-    processor.generate_midi_from_sequence(
-        generated_notes, output_file=os.path.join(output_dir, "lstm_generated_output.mid")
-    )
-
-    return generator
-
-
-def markov_training_pipeline(midi_dir, output_dir="output", markov_order=2):
-    """Complete pipeline for training a Markov model"""
-
-    # Create output directory if it doesn't exist
-    os.makedirs(output_dir, exist_ok=True)
-
-    # Initialize and process MIDI files
-    processor = MidiProcessor()
-    notes = processor.process_midi_directory(midi_dir)
-
-    # Initialize and train the Markov model
-    markov_generator = MarkovMidiGenerator(order=markov_order)
-    markov_generator.train(notes)
-
-    # Save the model
-    markov_generator.save_model(os.path.join(output_dir, "markov_model.pkl"))
-
-    # Generate a sample
-    seed = notes[:markov_order] if notes else None
-    generated_notes = markov_generator.generate_sequence(seed=seed, num_notes=100)
-
-    # Create a MIDI file from the generated notes
-    processor.generate_midi_from_sequence(
-        generated_notes, output_file=os.path.join(output_dir, "markov_generated_output.mid")
-    )
-
-    return markov_generator
-
-
+        instrument.notes.append(note)
+        current_time += note_duration
+    
+    # Add instrument to MIDI object
+    midi.instruments.append(instrument)
+    
+    return midi
+
+
+def midi_generation_pipeline(
+    midi_folder: str, 
+    output_file: str, 
+    sequence_length: int = 50, 
+    epochs: int = 50, 
+    notes_to_generate: int = 200, 
+    temperature: float = 1.0
+) -> tf_keras.Sequential:
+    """
+    Complete pipeline for training on MIDI files and generating new MIDI.
+    
+    Args:
+        midi_folder: Path to folder containing MIDI files
+        output_file: Path where the generated MIDI will be saved
+        sequence_length: Length of sequences for training and generation
+        epochs: Number of training epochs
+        notes_to_generate: Number of notes to generate
+        temperature: Randomness factor for generation
+        
+    Returns:
+        Trained tf_keras model
+    """
+    # Get all MIDI files in the folder
+    midi_files = glob.glob(os.path.join(midi_folder, "*.mid")) + glob.glob(os.path.join(midi_folder, "*.midi"))
+    
+    if not midi_files:
+        print(f"No MIDI files found in {midi_folder}")
+        quit()
+    
+    print(f"Found {len(midi_files)} MIDI files. Training model...")
+    
+    # Train model
+    model, all_notes = train_model(midi_files, sequence_length, epochs)
+    
+    # Get seed sequence from the original data
+    pitches = [note[0] for note in all_notes]
+    start_index = random.randint(0, len(pitches) - sequence_length - 1)
+    seed_notes = pitches[start_index:start_index + sequence_length]
+    
+    print("Generating new notes...")
+    # Generate new notes
+    generated_notes = generate_notes(model, seed_notes, notes_to_generate, temperature)
+    
+    # Create MIDI file
+    midi_output = create_midi_from_notes(generated_notes)
+    
+    # Save the generated MIDI
+    midi_output.write(output_file)
+    print(f"Generated MIDI saved to {output_file}")
+    
+    return model
+
+
+# Example usage
 if __name__ == "__main__":
-    # Example usage
-    MIDI_DIR = "path/to/your/midi/files"
-    OUTPUT_DIR = "generated_output"
-
-    # Choose which model to train (or both)
-    train_lstm = True
-    train_markov = True
-
-    if train_lstm:
-        print("Training LSTM model...")
-        lstm_generator = lstm_training_pipeline(MIDI_DIR, OUTPUT_DIR)
-
-    if train_markov:
-        print("Training Markov model...")
-        markov_generator = markov_training_pipeline(MIDI_DIR, OUTPUT_DIR)
+    midi_folder = "data/midi/testing/Cymatics Nebula MIDI Collection/Pop"
+    output_file = "data/midi/testing/Cymatics Nebula MIDI Collection/temp/tensoroutput.mid"
+    
+    # Run the pipeline
+    model = midi_generation_pipeline(
+        midi_folder=midi_folder,
+        output_file=output_file,
+        sequence_length=50,
+        epochs=10,  # Use fewer epochs for testing
+        notes_to_generate=200,
+        temperature=1.2  # Higher temperature = more randomness
+    )

@@ -302,9 +302,7 @@ class MarkovMidi:
 
 
 # Example usage
-def timing_aware_markov_example(
-    midi_directory: str, output_directory: str = "output"
-) -> MarkovMidi:
+def markov_example(midi_directory: str, output_directory: str = "output") -> MarkovMidi:
     """
     Example of using the MarkovMidi
 
@@ -324,20 +322,26 @@ def timing_aware_markov_example(
     model.train_on_midi_directory(midi_directory)
 
     # Save the model
-    model.save_model(os.path.join(output_directory, "timing_aware_markov_model.pkl"))
+    model.save_model(os.path.join(output_directory, "test_markov_model.pkl"))
 
     # Generate a new sequence
     generated_sequence = model.generate_sequence(num_notes=100)
 
     # Create a MIDI file
     model.generate_midi(
-        generated_sequence, output_file=os.path.join(output_directory, "timing_aware_markov_output.mid")
+        generated_sequence, output_file=os.path.join(output_directory, "test_markov_output.mid")
     )
 
     return model
+
+def main():
+    model: MarkovMidi = MarkovMidi(2)
+    model.train_on_midi_directory("data/midi/testing/Cymatics Nebula MIDI Collection/Pop")
+    sequence = model.generate_sequence()
+    model.generate_midi(sequence, "data/midi/testing/Cymatics Nebula MIDI Collection/temp/markovoutput.mid")
 
 
 if __name__ == "__main__":
     # Example usage - uncomment and modify path to use
     # timing_aware_markov_example("path/to/midi/files", "output")
-    pass
+    main()
