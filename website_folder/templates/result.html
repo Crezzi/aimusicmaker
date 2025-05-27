@@ -1,25 +1,16 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Upload MIDI</title>
+  <title>Download Modified MIDI</title>
   <style>
     body {
       background-color: #f9f5f1;
-      font-family: Arial, sans-serif;
-      color: #32394d;
       text-align: center;
       padding-top: 100px;
+      font-family: Arial, sans-serif;
     }
 
-    .upload-form {
-      margin-top: 50px;
-    }
-
-    input[type="file"] {
-      font-size: 1em;
-    }
-
-    button {
+    .download-btn {
       background-color: #32394d;
       color: #f9f5f1;
       padding: 12px 24px;
@@ -27,15 +18,17 @@
       border: none;
       border-radius: 6px;
       cursor: pointer;
-      margin-top: 20px;
     }
 
-    button:hover {
+    .download-btn:hover {
       background-color: #e07b00;
     }
   </style>
 </head>
 <body>
-  <h1>Upload Your MIDI File</h1>
-  <div class="upload-form">
-    <form method="POST" enctype="multipart/form-data
+  <h1>Your MIDI file is ready!</h1>
+  <a href="{{ url_for('download_file', filename=filename) }}">
+    <button class="download-btn">Download Modified MIDI</button>
+  </a>
+</body>
+</html>

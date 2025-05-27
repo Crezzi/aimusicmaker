@@ -16,5 +16,3 @@ def change_note_in_midi(input_file, output_file, original_note, new_note):
     new_mid.save(output_file)
     print(f"Saved modified MIDI to {output_file}")
 
-# Example usage
-change_note_in_midi("input.mid", "output.mid", original_note=60, new_note=62)

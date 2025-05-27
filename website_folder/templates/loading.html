@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Loading...</title>
+  <meta http-equiv="refresh" content="30;url=/result"> <!-- Redirects after 30s -->
+  <style>
+    body {
+      background-color: #f9f5f1;
+      font-family: Arial, sans-serif;
+      color: #32394d;
+      margin: 0;
+      text-align: center;
+      padding-top: 100px;
+    }
+
+    .header {
+      font-size: 2.5em;
+      margin-bottom: 40px;
+    }
+
+    .loading-img {
+      width: 250px;
+      height: 250px;
+    }
+
+    .cancel-btn {
+      background-color: #32394d;
+      color: #f9f5f1;
+      padding: 12px 24px;
+      font-size: 1em;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      margin-top: 40px;
+    }
+
+    .cancel-btn:hover {
+      background-color: #e07b00;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">Processing your MIDI file...</div>
+
+  <img src="{{ url_for('static', filename='loading.gif') }}" alt="Loading..." class="loading-img">
+
+  <br><br>
+  <a href="/newpage">
+    <button class="cancel-btn">Cancel</button>
+  </a>
+</body>
+</html>
