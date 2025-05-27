@@ -24,22 +24,11 @@ def load_midi_file(file_path: str) -> Optional[pretty_midi.PrettyMIDI]:
         return None
 
 
-def extract_polyphonic_events(midi_data: pretty_midi.PrettyMIDI, 
-                             instrument_index: int = 0, 
-                             time_step: float = 0.125) -> List[Tuple[List[int], float]]:
+def extract_polyphonic_events_with_duration(midi_data: pretty_midi.PrettyMIDI, 
+                                           instrument_index: int = 0, 
+                                           time_step: float = 0.125) -> List[Tuple[List[int], float]]:
     """
-    Extract polyphonic events from MIDI data by discretizing time into steps.
-    
-    This function creates "events" where each event contains all notes that are
-    active at that time step, allowing for chord detection and generation.
-    
-    Args:
-        midi_data: PrettyMIDI object
-        instrument_index: Index of the instrument to extract notes from
-        time_step: Time resolution in seconds (0.125 = 1/8 note at 120 BPM)
-        
-    Returns:
-        List of (active_pitches, duration_until_next_event) tuples
+    Enhanced version that better captures note durations and musical structure.
     """
     if len(midi_data.instruments) == 0:
         print("WARNING: No instruments found in MIDI file")
@@ -51,419 +40,444 @@ def extract_polyphonic_events(midi_data: pretty_midi.PrettyMIDI,
     
     instrument = midi_data.instruments[instrument_index]
     
-    # Get the total duration and create time grid
-    end_time = midi_data.get_end_time()
-    time_steps = np.arange(0, end_time, time_step)
-    
+    # Create events based on note onsets and offsets for better duration modeling
     events = []
+    note_events = []
     
-    print(f"Processing {len(time_steps)} time steps with resolution {time_step}s")
+    # Collect all note start/end events
+    for note in instrument.notes:
+        note_events.append(('start', note.start, note.pitch))
+        note_events.append(('end', note.end, note.pitch))
     
-    for i, current_time in enumerate(time_steps):
-        # Find all notes that are active at this time step
-        active_pitches = []
+    # Sort by time
+    note_events.sort(key=lambda x: x[1])
+    
+    # Track active notes and create events at each change
+    active_notes = set()
+    last_time = 0
+    
+    for event_type, time, pitch in note_events:
+        if time > last_time and active_notes:
+            # Create event for current state
+            duration = time - last_time
+            if duration >= time_step * 0.5:  # Only include events with meaningful duration
+                events.append((sorted(list(active_notes)), duration))
         
-        for note in instrument.notes:
-            if note.start <= current_time < note.end:
-                active_pitches.append(note.pitch)
-        
-        # Remove duplicates and sort
-        active_pitches = sorted(list(set(active_pitches)))
-        
-        # Calculate duration until next event (or use time_step as default)
-        if i < len(time_steps) - 1:
-            duration = time_steps[i + 1] - current_time
+        if event_type == 'start':
+            active_notes.add(pitch)
         else:
-            duration = time_step
+            active_notes.discard(pitch)
         
-        events.append((active_pitches, duration))
+        last_time = time
     
-    # Filter out empty events (silence) but keep some for musical phrasing
-    filtered_events = []
-    silence_count = 0
+    # Add final event if there are still active notes
+    if active_notes:
+        events.append((sorted(list(active_notes)), time_step))
     
-    for pitches, duration in events:
-        if len(pitches) > 0:
-            # Add accumulated silence before this chord if any
-            if silence_count > 0:
-                filtered_events.append(([], silence_count * time_step))
-                silence_count = 0
-            filtered_events.append((pitches, duration))
-        else:
-            silence_count += 1
-            # Don't let silence accumulate too much
-            if silence_count >= 8:  # Max 1 second of silence at 0.125s resolution
-                filtered_events.append(([], silence_count * time_step))
-                silence_count = 0
-    
-    # Add final silence if any
-    if silence_count > 0:
-        filtered_events.append(([], silence_count * time_step))
-    
-    # Statistics
-    chord_events = [e for e in filtered_events if len(e[0]) > 1]
-    single_note_events = [e for e in filtered_events if len(e[0]) == 1]
-    silence_events = [e for e in filtered_events if len(e[0]) == 0]
-    
-    print(f"Extracted {len(filtered_events)} events:")
-    print(f"  - {len(chord_events)} chords (2+ notes)")
-    print(f"  - {len(single_note_events)} single notes")
-    print(f"  - {len(silence_events)} silence periods")
-    
-    if chord_events:
-        chord_sizes = [len(e[0]) for e in chord_events]
-        print(f"  - Chord sizes: {min(chord_sizes)}-{max(chord_sizes)} notes, avg: {np.mean(chord_sizes):.1f}")
-    
-    return filtered_events
+    print(f"Extracted {len(events)} events with natural durations")
+    return events
 
 
-def encode_polyphonic_events(events: List[Tuple[List[int], float]], max_notes: int = 10) -> Tuple[np.ndarray, List[float]]:
+def quantize_duration(duration: float, time_step: float = 0.125) -> float:
     """
-    Encode polyphonic events into a format suitable for neural network training.
+    Quantize duration to musical subdivisions.
+    """
+    # Common musical durations (in terms of time_step units)
+    musical_durations = [0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0, 8.0]  # 1/16 to whole notes
     
-    Each event is encoded as a binary vector of length 128 (for MIDI pitches 0-127)
-    where 1 indicates the note is active and 0 indicates it's not.
+    # Convert to time_step units
+    duration_units = duration / time_step
     
-    Args:
-        events: List of (active_pitches, duration) tuples
-        max_notes: Maximum number of simultaneous notes to consider (for filtering)
-        
+    # Find closest musical duration
+    closest = min(musical_durations, key=lambda x: abs(x - duration_units))
+    
+    return closest * time_step
+
+
+def encode_polyphonic_events_with_duration(events: List[Tuple[List[int], float]], 
+                                         max_notes: int = 10) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Enhanced encoding that includes duration information.
+    
     Returns:
-        Tuple of (encoded_events, duration_data)
+        Tuple of (note_encodings, duration_encodings)
     """
-    encoded = []
-    durations = []
+    note_encodings = []
+    duration_encodings = []
+    
+    # Create duration categories for classification
+    duration_categories = [0.125, 0.25, 0.375, 0.5, 0.75, 1.0, 1.5, 2.0]  # Common durations
     
     for pitches, duration in events:
-        # Filter out events with too many simultaneous notes (likely errors)
         if len(pitches) > max_notes:
-            print(f"WARNING: Skipping event with {len(pitches)} simultaneous notes (max: {max_notes})")
             continue
         
-        # Create binary encoding
-        encoding = np.zeros(128, dtype=np.float32)
+        # Note encoding (same as before)
+        note_encoding = np.zeros(128, dtype=np.float32)
         for pitch in pitches:
             if 0 <= pitch <= 127:
-                encoding[pitch] = 1.0
+                note_encoding[pitch] = 1.0
         
-        encoded.append(encoding)
-        durations.append(duration)
+        # Duration encoding - find closest category
+        quantized_duration = quantize_duration(duration)
+        duration_category = min(range(len(duration_categories)), 
+                              key=lambda i: abs(duration_categories[i] - quantized_duration))
+        
+        note_encodings.append(note_encoding)
+        duration_encodings.append(duration_category)
     
-    return np.array(encoded), durations
+    return np.array(note_encodings), np.array(duration_encodings)
 
 
-def create_polyphonic_sequences(encoded_events: np.ndarray, 
-                               durations: List[float], 
-                               sequence_length: int = 20) -> Tuple[np.ndarray, np.ndarray, List[float]]:
+def create_enhanced_polyphonic_model(sequence_length: int = 20) -> tf_keras.Model:
     """
-    Create sequences for training the polyphonic model.
-    
-    Args:
-        encoded_events: Binary encoded events (n_events, 128)
-        durations: Duration for each event
-        sequence_length: Length of input sequences
-        
-    Returns:
-        Tuple of (input_sequences, output_events, duration_data)
+    Create an enhanced model that predicts both notes and durations.
     """
-    if len(encoded_events) < sequence_length + 1:
-        raise ValueError(f"Not enough events ({len(encoded_events)}) to create sequences of length {sequence_length}")
+    # Input layer
+    input_notes = layers.Input(shape=(sequence_length, 128), name='note_input')
+    input_durations = layers.Input(shape=(sequence_length,), name='duration_input')
     
-    network_input = []
-    network_output = []
+    # Duration embedding
+    duration_embedding = layers.Embedding(input_dim=8, output_dim=16)(input_durations)
+    duration_embedding = layers.Reshape((sequence_length, 16))(duration_embedding)
     
-    # Create overlapping sequences
-    for i in range(len(encoded_events) - sequence_length):
-        sequence_in = encoded_events[i:i + sequence_length]
-        sequence_out = encoded_events[i + sequence_length]
-        
-        network_input.append(sequence_in)
-        network_output.append(sequence_out)
+    # Combine note and duration information
+    combined = layers.Concatenate()([input_notes, duration_embedding])
     
-    network_input = np.array(network_input)
-    network_output = np.array(network_output)
+    # LSTM layers
+    lstm1 = layers.LSTM(512, return_sequences=True)(combined)
+    lstm1 = layers.Dropout(0.3)(lstm1)
     
-    print(f"Created {len(network_input)} training sequences")
-    print(f"Input shape: {network_input.shape}, Output shape: {network_output.shape}")
+    lstm2 = layers.LSTM(512, return_sequences=True)(lstm1)
+    lstm2 = layers.Dropout(0.3)(lstm2)
     
-    return network_input, network_output, durations
-
-
-def create_polyphonic_model(sequence_length: int = 20) -> tf_keras.Sequential:
-    """
-    Create an LSTM model for polyphonic MIDI generation.
+    lstm3 = layers.LSTM(512)(lstm2)
+    lstm3 = layers.Dropout(0.3)(lstm3)
     
-    This model outputs a 128-dimensional binary vector representing
-    which MIDI notes should be active at each time step.
+    # Dense layer for feature extraction
+    dense = layers.Dense(256, activation='relu')(lstm3)
+    dense = layers.Dropout(0.3)(dense)
     
-    Args:
-        sequence_length: Length of input sequences
-        
-    Returns:
-        Compiled tf_keras model
-    """
-    model = tf_keras.Sequential()
+    # Output heads
+    note_output = layers.Dense(128, activation='sigmoid', name='note_output')(dense)
+    duration_output = layers.Dense(8, activation='softmax', name='duration_output')(dense)
     
-    # Input shape: (batch_size, sequence_length, 128)
-    model.add(layers.LSTM(512, input_shape=(sequence_length, 128), return_sequences=True))
-    model.add(layers.Dropout(0.3))
-    
-    model.add(layers.LSTM(512, return_sequences=True))
-    model.add(layers.Dropout(0.3))
-    
-    model.add(layers.LSTM(512))
-    model.add(layers.Dropout(0.3))
-    
-    # Dense layers for better pattern learning
-    model.add(layers.Dense(256, activation='relu'))
-    model.add(layers.Dropout(0.3))
-    
-    # Output layer: 128 neurons with sigmoid activation for binary classification
-    # Each neuron represents whether a MIDI note should be active
-    model.add(layers.Dense(128, activation='sigmoid'))
-    
-    # Use binary crossentropy since each output is an independent binary decision
-    model.compile(
-        loss='binary_crossentropy',
-        optimizer='adam',
-        metrics=['binary_accuracy']
+    model = tf_keras.Model(
+        inputs=[input_notes, input_durations],
+        outputs=[note_output, duration_output]
     )
     
-    print("Polyphonic model architecture:")
+    model.compile(
+        optimizer='adam',
+        loss={
+            'note_output': 'binary_crossentropy',
+            'duration_output': 'sparse_categorical_crossentropy'
+        },
+        metrics={
+            'note_output': 'binary_accuracy',
+            'duration_output': 'accuracy'
+        }
+    )
+    
+    print("Enhanced polyphonic model architecture:")
     model.summary()
     
     return model
 
 
-def train_polyphonic_model(midi_files: List[str], 
-                          sequence_length: int = 20, 
-                          epochs: int = 50, 
-                          batch_size: int = 32) -> Tuple[tf_keras.Sequential, np.ndarray, List[float]]:
+def create_enhanced_sequences(note_encodings: np.ndarray, 
+                            duration_encodings: np.ndarray,
+                            sequence_length: int = 20) -> Tuple[List[np.ndarray], List[np.ndarray]]:
     """
-    Train the polyphonic model on MIDI files.
+    Create training sequences with both note and duration information.
+    """
+    if len(note_encodings) < sequence_length + 1:
+        raise ValueError(f"Not enough events ({len(note_encodings)}) to create sequences")
     
-    Args:
-        midi_files: List of paths to MIDI files
-        sequence_length: Length of sequences for training
-        epochs: Number of training epochs
-        batch_size: Batch size for training
+    input_notes = []
+    input_durations = []
+    output_notes = []
+    output_durations = []
+    
+    for i in range(len(note_encodings) - sequence_length):
+        # Input sequences
+        note_seq = note_encodings[i:i + sequence_length]
+        duration_seq = duration_encodings[i:i + sequence_length]
         
-    Returns:
-        Tuple of (trained_model, all_encoded_events, duration_data)
+        # Output (next event)
+        next_note = note_encodings[i + sequence_length]
+        next_duration = duration_encodings[i + sequence_length]
+        
+        input_notes.append(note_seq)
+        input_durations.append(duration_seq)
+        output_notes.append(next_note)
+        output_durations.append(next_duration)
+    
+    return ([np.array(input_notes), np.array(input_durations)], 
+            [np.array(output_notes), np.array(output_durations)])
+
+
+def generate_enhanced_sequence(model: tf_keras.Model,
+                             seed_notes: np.ndarray,
+                             seed_durations: np.ndarray,
+                             num_events: int = 50,
+                             temperature: float = 1.0,
+                             note_threshold: float = 0.3) -> List[Tuple[List[int], float]]:
+    """
+    Enhanced generation with better musical variety.
+    """
+    duration_categories = [0.125, 0.25, 0.375, 0.5, 0.75, 1.0, 1.5, 2.0]
+    
+    pattern_notes = seed_notes.copy()
+    pattern_durations = seed_durations.copy()
+    generated_events = []
+    
+    print(f"Generating {num_events} enhanced events...")
+    
+    for i in range(num_events):
+        # Prepare inputs
+        x_notes = np.reshape(pattern_notes, (1, pattern_notes.shape[0], pattern_notes.shape[1]))
+        x_durations = np.reshape(pattern_durations, (1, pattern_durations.shape[0]))
+        
+        # Get predictions
+        note_pred, duration_pred = model.predict([x_notes, x_durations], verbose=0)
+        note_pred = note_pred[0]
+        duration_pred = duration_pred[0]
+        
+        # Apply temperature to note predictions
+        if temperature != 1.0 and temperature > 0:
+            note_pred = np.clip(note_pred, 1e-8, 1 - 1e-8)
+            logits = np.log(note_pred / (1 - note_pred))
+            logits = logits / temperature
+            note_pred = 1 / (1 + np.exp(-logits))
+        
+        # Generate notes with musical intelligence
+        active_notes = generate_musical_notes(note_pred, note_threshold, i)
+        
+        # Sample duration
+        duration_idx = np.random.choice(len(duration_pred), p=duration_pred)
+        duration = duration_categories[duration_idx]
+        
+        generated_events.append((active_notes, duration))
+        
+        # Update patterns
+        new_note_encoding = np.zeros(128, dtype=np.float32)
+        for pitch in active_notes:
+            if 0 <= pitch < 128:
+                new_note_encoding[pitch] = 1.0
+        
+        pattern_notes = np.vstack([pattern_notes[1:], new_note_encoding])
+        pattern_durations = np.append(pattern_durations[1:], duration_idx)
+    
+    return generated_events
+
+
+def generate_musical_notes(note_pred: np.ndarray, base_threshold: float, event_idx: int) -> List[int]:
+    """
+    Generate notes with musical intelligence to create variety in chords and single notes.
+    """
+    # Dynamic threshold based on musical context
+    if event_idx % 8 < 2:  # Downbeats - favor chords
+        threshold = base_threshold * 0.7
+        max_notes = 4
+        min_notes = 2
+    elif event_idx % 4 == 0:  # Strong beats - mix of chords and single notes
+        threshold = base_threshold * 0.8
+        max_notes = 3
+        min_notes = 1
+    else:  # Weak beats - favor single notes
+        threshold = base_threshold * 1.2
+        max_notes = 2
+        min_notes = 0
+    
+    # Get candidate notes
+    candidates = []
+    for pitch, prob in enumerate(note_pred):
+        if prob > threshold:
+            candidates.append((pitch, prob))
+    
+    # Sort by probability
+    candidates.sort(key=lambda x: x[1], reverse=True)
+    
+    # Select notes based on musical rules
+    active_notes = []
+    
+    if len(candidates) >= min_notes:
+        # Take the most probable notes up to max_notes
+        for pitch, prob in candidates[:max_notes]:
+            active_notes.append(pitch)
+    elif len(candidates) > 0:
+        # Take what we have
+        for pitch, prob in candidates:
+            active_notes.append(pitch)
+    else:
+        # Force selection if no candidates
+        if np.max(note_pred) > 0.01:
+            best_notes = np.argsort(note_pred)[-min(2, max_notes):]
+            for pitch in best_notes:
+                if note_pred[pitch] > 0.01:
+                    active_notes.append(int(pitch))
+    
+    # Musical post-processing
+    if len(active_notes) > 1:
+        active_notes = filter_musical_intervals(active_notes)
+    
+    return sorted(active_notes)
+
+
+def filter_musical_intervals(notes: List[int]) -> List[int]:
+    """
+    Filter notes to create more musical intervals and chords.
+    """
+    if len(notes) <= 1:
+        return notes
+    
+    notes = sorted(notes)
+    filtered = [notes[0]]  # Always keep the bass note
+    
+    for note in notes[1:]:
+        interval = note - filtered[-1]
+        
+        # Prefer musical intervals (avoid harsh dissonances)
+        if interval >= 3:  # At least a minor third
+            # Check for good intervals: 3,4,5,7,8,9,12 semitones
+            if interval in [3, 4, 5, 7, 8, 9, 12] or interval >= 12:
+                filtered.append(note)
+            elif len(filtered) == 1:  # If only bass note, be more lenient
+                filtered.append(note)
+    
+    return filtered
+
+
+def train_enhanced_model(midi_files: List[str], 
+                        sequence_length: int = 20, 
+                        epochs: int = 50, 
+                        batch_size: int = 32) -> Tuple[tf_keras.Model, np.ndarray, np.ndarray]:
+    """
+    Train the enhanced model.
     """
     all_events = []
     successful_files = 0
     
-    print(f"Processing {len(midi_files)} MIDI files for polyphonic training...")
+    print(f"Processing {len(midi_files)} MIDI files for enhanced training...")
     
     for i, file in enumerate(midi_files):
         print(f"Processing file {i+1}/{len(midi_files)}: {os.path.basename(file)}")
         midi_data = load_midi_file(file)
         if midi_data:
-            events = extract_polyphonic_events(midi_data)
+            events = extract_polyphonic_events_with_duration(midi_data)
             if events:
                 all_events.extend(events)
                 successful_files += 1
-            else:
-                print(f"WARNING: No events extracted from {file}")
     
     if not all_events:
-        raise ValueError("No events were successfully extracted from any MIDI files!")
+        raise ValueError("No events were successfully extracted!")
     
     print(f"\nSuccessfully processed {successful_files}/{len(midi_files)} files")
     print(f"Total events extracted: {len(all_events)}")
     
     # Encode events
-    encoded_events, duration_data = encode_polyphonic_events(all_events)
+    note_encodings, duration_encodings = encode_polyphonic_events_with_duration(all_events)
     
-    # Create training sequences
-    network_input, network_output, _ = create_polyphonic_sequences(
-        encoded_events, duration_data, sequence_length
-    )
+    # Create sequences
+    X, y = create_enhanced_sequences(note_encodings, duration_encodings, sequence_length)
     
-    print(f"Final training data shape: {network_input.shape}")
-    print(f"Starting polyphonic training for {epochs} epochs with batch size {batch_size}")
+    print(f"Training data shapes: Notes {X[0].shape}, Durations {X[1].shape}")
     
     # Create and train model
-    model = create_polyphonic_model(sequence_length)
+    model = create_enhanced_polyphonic_model(sequence_length)
     
     history = model.fit(
-        network_input, 
-        network_output, 
-        epochs=epochs, 
+        X, y,
+        epochs=epochs,
         batch_size=batch_size,
         validation_split=0.2,
         verbose=1
     )
     
-    # Training statistics
-    final_loss = history.history['loss'][-1]
-    final_val_loss = history.history['val_loss'][-1]
-    final_acc = history.history['binary_accuracy'][-1]
-    
-    print(f"\nPolyphonic training completed.")
-    print(f"Final loss: {final_loss:.4f}, Final validation loss: {final_val_loss:.4f}")
-    print(f"Final binary accuracy: {final_acc:.4f}")
-    
-    return model, encoded_events, duration_data
+    print("Enhanced training completed!")
+    return model, note_encodings, duration_encodings
 
 
-def generate_polyphonic_sequence(model: tf_keras.Sequential, 
-                                seed_sequence: np.ndarray, 
-                                duration_data: List[float],
-                                num_events: int = 50, 
-                                temperature: float = 1.0,
-                                note_threshold: float = 0.3) -> List[Tuple[List[int], float]]:
+def enhanced_midi_pipeline(midi_folder: str, 
+                          output_file: str, 
+                          sequence_length: int = 20, 
+                          epochs: int = 50, 
+                          events_to_generate: int = 100, 
+                          temperature: float = 1.0,
+                          note_threshold: float = 0.4) -> tf_keras.Model:
     """
-    Generate a polyphonic sequence using the trained model.
-    
-    Args:
-        model: Trained polyphonic model
-        seed_sequence: Initial sequence of encoded events
-        duration_data: Duration information from training data
-        num_events: Number of events to generate
-        temperature: Temperature for sampling (higher = more random)
-        note_threshold: Threshold for determining if a note should be active
-        
-    Returns:
-        List of (active_pitches, duration) tuples
+    Complete enhanced pipeline for varied polyphonic MIDI generation.
     """
-    print(f"Generating {num_events} polyphonic events with temperature {temperature}")
-    print(f"Using note threshold: {note_threshold}")
+    print("=" * 60)
+    print("ENHANCED POLYPHONIC MIDI GENERATION PIPELINE")
+    print("=" * 60)
     
-    if len(seed_sequence) != model.input_shape[1]:
-        raise ValueError(f"Seed sequence length ({len(seed_sequence)}) must match model input shape ({model.input_shape[1]})")
+    midi_files = glob.glob(os.path.join(midi_folder, "*.mid")) + glob.glob(os.path.join(midi_folder, "*.midi"))
     
-    pattern = seed_sequence.copy()
-    generated_events = []
+    if not midi_files:
+        raise FileNotFoundError(f"No MIDI files found in {midi_folder}")
     
-    for i in range(num_events):
-        if i % 10 == 0:
-            print(f"Generated {i}/{num_events} events...")
-        
-        # Prepare input
-        x = np.reshape(pattern, (1, pattern.shape[0], pattern.shape[1]))
-        
-        # Get prediction
-        prediction = model.predict(x, verbose=0)[0]
-        
-        # DEBUG: Print prediction statistics for first few generations
-        if i < 3:
-            print(f"Event {i}: Prediction range [{prediction.min():.4f}, {prediction.max():.4f}], "
-                  f"Mean: {prediction.mean():.4f}")
-            top_5_indices = np.argsort(prediction)[-5:]
-            print(f"Top 5 predicted notes: {[(idx, prediction[idx]) for idx in reversed(top_5_indices)]}")
-        
-        # Apply temperature - fix the temperature application
-        if temperature != 1.0 and temperature > 0:
-            # For sigmoid outputs, we need a different temperature application
-            prediction = np.clip(prediction, 1e-8, 1 - 1e-8)  # Avoid log(0) and log(1)
-            logits = np.log(prediction / (1 - prediction))  # Convert sigmoid to logits
-            logits = logits / temperature
-            prediction = 1 / (1 + np.exp(-logits))  # Convert back to probabilities
-        
-        # Multiple strategies for note selection to ensure we get some notes
-        active_notes = []
-        
-        # Strategy 1: Direct threshold
-        for pitch, prob in enumerate(prediction):
-            if prob > note_threshold:
-                active_notes.append(pitch)
-        
-        # Strategy 2: If no notes selected, take the top N most probable
-        if len(active_notes) == 0:
-            # Take top 1-3 notes based on probability
-            num_top_notes = min(3, max(1, int(np.sum(prediction > 0.1))))
-            top_indices = np.argsort(prediction)[-num_top_notes:]
-            for idx in top_indices:
-                if prediction[idx] > 0.05:  # Very low threshold
-                    active_notes.append(idx)
-        
-        # Strategy 3: If still empty, force at least one note
-        if len(active_notes) == 0:
-            best_note = np.argmax(prediction)
-            if prediction[best_note] > 0.01:  # Extremely low threshold
-                active_notes.append(best_note)
-                print(f"WARNING: Forced note selection at event {i}, note {best_note} with prob {prediction[best_note]:.4f}")
-        
-        # Ensure we don't have too many simultaneous notes
-        if len(active_notes) > 6:  # Limit to 6 simultaneous notes
-            # Keep the most probable notes
-            note_probs = [(pitch, prediction[pitch]) for pitch in active_notes]
-            note_probs.sort(key=lambda x: x[1], reverse=True)
-            active_notes = [pitch for pitch, _ in note_probs[:6]]
-        
-        # Sample duration - ensure we have valid durations
-        if duration_data:
-            duration = random.choice(duration_data)
-        else:
-            duration = 0.5  # Default duration
-        
-        # Ensure minimum duration
-        duration = max(duration, 0.1)
-        
-        generated_events.append((active_notes, duration))
-        
-        # DEBUG: Print info for first few events
-        if i < 5:
-            print(f"Event {i}: Generated {len(active_notes)} notes: {active_notes}, duration: {duration:.3f}")
-        
-        # Update pattern for next prediction
-        new_encoding = np.zeros(128, dtype=np.float32)
-        for pitch in active_notes:
-            if 0 <= pitch < 128:
-                new_encoding[pitch] = 1.0
-        
-        pattern = np.vstack([pattern[1:], new_encoding])
+    print(f"Found {len(midi_files)} MIDI files")
     
-    print(f"Generation complete! Generated {len(generated_events)} events")
+    # Train model
+    model, note_encodings, duration_encodings = train_enhanced_model(
+        midi_files, sequence_length, epochs
+    )
     
-    # Statistics
-    chord_events = [e for e in generated_events if len(e[0]) > 1]
-    single_note_events = [e for e in generated_events if len(e[0]) == 1]
-    silence_events = [e for e in generated_events if len(e[0]) == 0]
-    total_notes = sum(len(e[0]) for e in generated_events)
+    # Generate music
+    print("\n" + "GENERATION PHASE".center(60, "="))
     
-    print(f"Generated events breakdown:")
-    print(f"  - {len(chord_events)} chords (2+ notes)")
-    print(f"  - {len(single_note_events)} single notes")
-    print(f"  - {len(silence_events)} silence periods")
-    print(f"  - Total notes across all events: {total_notes}")
+    start_idx = random.randint(0, len(note_encodings) - sequence_length)
+    seed_notes = note_encodings[start_idx:start_idx + sequence_length]
+    seed_durations = duration_encodings[start_idx:start_idx + sequence_length]
     
-    if total_notes == 0:
-        print("ERROR: No notes generated! Check model training and thresholds.")
+    generated_events = generate_enhanced_sequence(
+        model, seed_notes, seed_durations, events_to_generate, temperature, note_threshold
+    )
     
-    return generated_events
+    # Create MIDI
+    midi_output = create_midi_from_polyphonic_events(generated_events, tempo=120)
+    
+    os.makedirs(os.path.dirname(output_file), exist_ok=True)
+    midi_output.write(output_file)
+    
+    # Print statistics
+    chords = [e for e in generated_events if len(e[0]) > 1]
+    singles = [e for e in generated_events if len(e[0]) == 1]
+    rests = [e for e in generated_events if len(e[0]) == 0]
+    
+    print(f"\nGeneration Statistics:")
+    print(f"Chords: {len(chords)} ({len(chords)/len(generated_events)*100:.1f}%)")
+    print(f"Single notes: {len(singles)} ({len(singles)/len(generated_events)*100:.1f}%)")
+    print(f"Rests: {len(rests)} ({len(rests)/len(generated_events)*100:.1f}%)")
+    
+    if chords:
+        chord_sizes = [len(e[0]) for e in chords]
+        print(f"Chord sizes: {min(chord_sizes)}-{max(chord_sizes)} notes")
+    
+    durations = [e[1] for e in generated_events]
+    print(f"Duration range: {min(durations):.3f}s - {max(durations):.3f}s")
+    
+    print(f"\nSUCCESS! Enhanced MIDI saved to: {output_file}")
+    
+    return model
 
 
 def create_midi_from_polyphonic_events(events: List[Tuple[List[int], float]], 
                                       tempo: int = 120) -> pretty_midi.PrettyMIDI:
     """
-    Create a MIDI file from polyphonic events.
-    
-    Args:
-        events: List of (active_pitches, duration) tuples
-        tempo: Tempo in beats per minute
-        
-    Returns:
-        PrettyMIDI object with polyphonic music
+    Create MIDI from polyphonic events (same as original but with better logging).
     """
-    print(f"Creating polyphonic MIDI with {len(events)} events at {tempo} BPM")
+    print(f"Creating MIDI with {len(events)} events at {tempo} BPM")
     
     midi = pretty_midi.PrettyMIDI(initial_tempo=tempo)
-    instrument = pretty_midi.Instrument(program=0)  # Piano
+    instrument = pretty_midi.Instrument(program=0)
     
     current_time = 0.0
-    total_notes_created = 0
+    total_notes = 0
     
-    for i, (pitches, duration) in enumerate(events):
-        # DEBUG: Print first few events
-        if i < 5:
-            print(f"Event {i}: Creating {len(pitches)} notes at time {current_time:.2f}s, duration {duration:.2f}s")
-            if pitches:
-                print(f"  Pitches: {pitches}")
-        
-        # Create all notes that should start at this time
+    for pitches, duration in events:
         for pitch in pitches:
             if 0 <= pitch <= 127:
                 note = pretty_midi.Note(
@@ -473,130 +487,37 @@ def create_midi_from_polyphonic_events(events: List[Tuple[List[int], float]],
                     end=current_time + duration
                 )
                 instrument.notes.append(note)
-                total_notes_created += 1
-            else:
-                print(f"WARNING: Invalid pitch {pitch} at event {i}")
+                total_notes += 1
         
-        # Advance time
         current_time += duration
     
     midi.instruments.append(instrument)
-    
-    print(f"Polyphonic MIDI created: {current_time:.2f} seconds total duration")
-    print(f"Total notes created: {total_notes_created}")
-    
-    if total_notes_created == 0:
-        print("ERROR: No notes were created! MIDI will be empty.")
-        # Let's add a test note to verify MIDI creation works
-        test_note = pretty_midi.Note(velocity=80, pitch=60, start=0.0, end=1.0)
-        instrument.notes.append(test_note)
-        print("Added test note (C4) to prevent empty MIDI")
+    print(f"Created MIDI: {current_time:.2f}s duration, {total_notes} notes")
     
     return midi
-
-
-def polyphonic_midi_pipeline(midi_folder: str, 
-                           output_file: str, 
-                           sequence_length: int = 20, 
-                           epochs: int = 50, 
-                           events_to_generate: int = 100, 
-                           temperature: float = 1.0,
-                           note_threshold: float = 0.5) -> tf_keras.Sequential:
-    """
-    Complete pipeline for polyphonic MIDI generation.
-    
-    Args:
-        midi_folder: Path to folder containing MIDI files
-        output_file: Path where the generated MIDI will be saved
-        sequence_length: Length of sequences for training and generation
-        epochs: Number of training epochs
-        events_to_generate: Number of events to generate
-        temperature: Randomness factor for generation
-        note_threshold: Threshold for note activation
-        
-    Returns:
-        Trained tf_keras model
-    """
-    print("=" * 60)
-    print("POLYPHONIC MIDI GENERATION PIPELINE")
-    print("=" * 60)
-    
-    # Find MIDI files
-    midi_files = glob.glob(os.path.join(midi_folder, "*.mid")) + glob.glob(os.path.join(midi_folder, "*.midi"))
-    
-    if not midi_files:
-        raise FileNotFoundError(f"No MIDI files found in {midi_folder}")
-    
-    print(f"Found {len(midi_files)} MIDI files in {midi_folder}")
-    
-    # Train model
-    print("\n" + "=" * 30)
-    print("TRAINING PHASE")
-    print("=" * 30)
-    model, all_encoded_events, duration_data = train_polyphonic_model(
-        midi_files, sequence_length, epochs
-    )
-    
-    # Generate music
-    print("\n" + "=" * 30)
-    print("GENERATION PHASE")
-    print("=" * 30)
-    
-    # Get seed sequence
-    if len(all_encoded_events) < sequence_length:
-        raise ValueError(f"Not enough events in training data ({len(all_encoded_events)}) for sequence length {sequence_length}")
-    
-    start_index = random.randint(0, len(all_encoded_events) - sequence_length)
-    seed_sequence = all_encoded_events[start_index:start_index + sequence_length]
-    
-    print(f"Using seed sequence starting at index {start_index}")
-    
-    # Generate polyphonic sequence
-    generated_events = generate_polyphonic_sequence(
-        model, seed_sequence, duration_data, events_to_generate, temperature, note_threshold
-    )
-    
-    # Create output MIDI
-    print("\n" + "=" * 30)
-    print("MIDI CREATION PHASE")
-    print("=" * 30)
-    
-    midi_output = create_midi_from_polyphonic_events(generated_events, tempo=120)
-    
-    # Save output
-    os.makedirs(os.path.dirname(output_file), exist_ok=True)
-    midi_output.write(output_file)
-    
-    print(f"\n{'='*60}")
-    print(f"SUCCESS! Polyphonic MIDI saved to: {output_file}")
-    print(f"Total duration: {midi_output.get_end_time():.2f} seconds")
-    print(f"Events generated: {len(generated_events)}")
-    print(f"{'='*60}")
-    
-    return model
 
 
 # Example usage
 if __name__ == "__main__":
     try:
-        midi_folder = "data/midi/testing/Cymatics Nebula MIDI Collection/Pop"
-        output_file = "data/midi/testing/Cymatics Nebula MIDI Collection/temp/polyphonic_output.mid"
+        midi_folder = "data/midi/testing/Cymatics Nebula MIDI Collection/EDM"
+        output_file = "data/midi/testing/Cymatics Nebula MIDI Collection/temp/enhanced_polyphonic_output.mid"
         
         if not os.path.exists(midi_folder):
             print(f"ERROR: MIDI folder does not exist: {midi_folder}")
             exit(1)
         
-        model = polyphonic_midi_pipeline(
+        model = enhanced_midi_pipeline(
             midi_folder=midi_folder,
             output_file=output_file,
-            sequence_length=20,  # Shorter sequences work better for polyphonic data
-            epochs=5,  # Adjust based on your needs
-            events_to_generate=100,
-            temperature=1.0,
-            note_threshold=0.2  # Much lower threshold to ensure notes are generated
+            sequence_length=20,
+            epochs=5,
+            events_to_generate=150,
+            temperature=0.8,
+            note_threshold=0.3  # Lower threshold for more note variety
         )
         
-        print("\nPolyphonic pipeline completed successfully!")
+        print("\nEnhanced polyphonic pipeline completed successfully!")
         
     except Exception as e:
         print(f"\nFATAL ERROR: {e}")
