@@ -14,7 +14,11 @@ def home():
 @app.route("/upload", methods=['GET', 'POST'])
 def upload():
     if request.method == 'POST':
-        file = request.files['file']
+        print(request.files)
+        if "file" in request.files:
+            file = request.files["file"]
+        else:
+            file = request.files['files']
         if file:
             filename = file.filename
             input_path = os.path.join('uploads', filename)
@@ -28,7 +32,8 @@ def upload():
             change_note_in_midi(input_path, output_path, original_note=60, new_note=62)
 
             return redirect(url_for('loading'))
-    return render_template('upload_page.html')
+    return render_template("generate_new_music.html")
+
 
 @app.route("/loading")
 def loading():
