@@ -23,7 +23,7 @@ def upload():
             filename = file.filename
             input_path = os.path.join('uploads', filename)
             output_filename = f'modified_{filename}'
-            output_path = os.path.join('uploads', output_filename)
+            output_path = os.path.join('website_folder/uploads', output_filename)
 
             file.save(input_path)
             session['output_filename'] = output_filename  # Save filename to use in /result
