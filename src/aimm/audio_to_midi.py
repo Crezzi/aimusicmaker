@@ -1,4 +1,5 @@
 import os
+from music21 import converter, key as music21key
 from datetime import datetime, timedelta
 
 # from basic_pitch.train import main HOLY FUCK NO WAY THEY HAVE WHAT WE NEED
@@ -27,7 +28,31 @@ def delete_temp_midis() -> None:
     for i in range(1, 5):
         os.remove(f"data/audio/temp/{i}.mid")
 
+def transpose_to_c_major(input_path, output_path):
+    # Load the MIDI file using music21 to estimate key
+    midi_stream = converter.parse(input_path)
+    
+    # Analyze key
+    k = midi_stream.analyze('key')
+    print(f"Estimated key: {k}")
+    
+    # Calculate the interval needed to transpose to C major or A minor
+    if k.mode == "major":
+        interval = music21key.Key("C").tonic.pitchClass - k.tonic.pitchClass
+    else:
+        interval = music21key.Key("A").tonic.pitchClass - k.tonic.pitchClass
+
+    # Transpose the stream
+    transposed_stream = midi_stream.transpose(interval)
+
+    # Make sure output directory exists
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+    # Write out the transposed MIDI file
+    transposed_stream.write("midi", output_path)
+    print(f"Saved transposed file to {output_path}")
 
 if __name__ == "__main__":
     print(main())
+    transpose_to_c_major("data/midi/testing/Cymatics Nebula MIDI Collection/Pop/Cymatics - Love MIDI - F Maj.mid","data/audio/data/output.md/training_and_testing_data/output.mid")
     # delete_temp_midis()
