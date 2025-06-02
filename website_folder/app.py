@@ -1,7 +1,8 @@
 import os
 import time
+
 from flask import Flask, render_template, request, redirect, url_for, send_from_directory, session
-from website_folder.midi_note_change import change_note_in_midi
+from website_folder.midi_note_change import change_note_in_midi, transpose
 
 app = Flask(__name__)
 app.config["DEBUG"] = True
@@ -29,7 +30,8 @@ def upload():
             session['output_filename'] = output_filename  # Save filename to use in /result
 
             # Start processing but delay final display for 30s
-            change_note_in_midi(input_path, output_path, original_note=60, new_note=62)
+            #change_note_in_midi(input_path, output_path, original_note=60, new_note=62)
+            transpose(input_path, output_path)
 
             return redirect(url_for('loading'))
     return render_template("generate_new_music.html")

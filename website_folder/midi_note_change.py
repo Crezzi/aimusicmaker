@@ -1,5 +1,6 @@
 import mido
 from mido import MidiFile, MidiTrack, Message
+from aimm.audio_to_midi import transpose_to_c_major
 
 def change_note_in_midi(input_file, output_file, original_note, new_note):
     mid = MidiFile(input_file)
@@ -15,4 +16,7 @@ def change_note_in_midi(input_file, output_file, original_note, new_note):
 
     new_mid.save(output_file)
     print(f"Saved modified MIDI to {output_file}")
+
+def transpose(input_file, output_file):
+    transpose_to_c_major(input_file, output_file)
 
