@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Download Modified MIDI</title>
+  <style>
+    body {
+      background-color: #f9f5f1;
+      text-align: center;
+      padding-top: 100px;
+      font-family: Arial, sans-serif;
+      color: #32394d;
+    }
+
+    h1 {
+      margin-bottom: 40px;
+      font-size: 2.5em;
+    }
+
+    .button {
+      background-color: #32394d;
+      color: #f9f5f1;
+      padding: 12px 24px;
+      font-size: 1em;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      margin: 20px;
+    }
+
+    .button:hover {
+      background-color: #e07b00;
+    }
+
+    .filename {
+      font-size: 1.2em;
+      margin-bottom: 20px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Your MIDI file is ready!</h1>
+
+  <div class="filename">{{ filename }}</div>
+
+  <!-- Download button -->
+  <a href="{{ url_for('download_file', filename=filename) }}">
+    <button class="button">Download Modified MIDI</button>
+  </a>
+
+  <!-- Return to generate page button -->
+  <a href="/upload">
+    <button class="button">Return to Generate New Music</button>
+  </a>
+</body>
+</html>
