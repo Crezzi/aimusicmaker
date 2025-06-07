@@ -27,3 +27,7 @@ repomix*
 *.docx
 *.pdf
 *.xml
+
+website_folder/transposed/
+website_folder/download/
+uploads/

@@ -1,10 +1,12 @@
+import glob
 import os
-from music21 import converter, key as music21key
 from datetime import datetime, timedelta
 from pathlib import Path
-# from basic_pitch.train import main HOLY FUCK NO WAY THEY HAVE WHAT WE NEED
+
 from basic_pitch import ICASSP_2022_MODEL_PATH
 from basic_pitch.inference import predict
+from music21 import converter
+from music21 import key as music21key
 
 
 def audio_to_midi(audio_path: str, i: int):
@@ -28,14 +30,15 @@ def delete_temp_midis() -> None:
     for i in range(1, 5):
         os.remove(f"data/audio/temp/{i}.mid")
 
+
 def transpose_to_c_major(input_path, output_path):
     # Load the MIDI file using music21 to estimate key
     midi_stream = converter.parse(input_path)
-    
+
     # Analyze key
-    k = midi_stream.analyze('key')
+    k = midi_stream.analyze("key")
     print(f"Estimated key: {k}")
-    
+
     # Calculate the interval needed to transpose to C major or A minor
     if k.mode == "major":
         interval = music21key.Key("C").tonic.pitchClass - k.tonic.pitchClass
@@ -52,12 +55,38 @@ def transpose_to_c_major(input_path, output_path):
     transposed_stream.write("midi", output_path)
     print(f"Saved transposed file to {output_path}")
 
+
+def get_midi_files(directory: str) -> list[str]:
+    midi_files = []
+
+    # Check if directory exists
+    if not os.path.exists(directory):
+        print(f"Directory '{directory}' does not exist.")
+        return midi_files
+
+    # Walk through directory and subdirectories
+    for root, dirs, files in os.walk(directory):
+        for file in files:
+            # Check if file has .mid or .midi extension (case insensitive)
+            if file.lower().endswith((".mid", ".midi")):
+                full_path = os.path.join(root, file)
+                midi_files.append(full_path)
+
+    return midi_files
+
+
+def transpose_a_dir(input_dir: str, output_dir: str):
+    midi_files = get_midi_files(input_dir)
+    for midi in midi_files:
+        transpose_to_c_major(midi, "website_folder/transposed/" + "TRANSPOSED " + f"{midi.replace('uploads/', '')}")
+
+    folder_path = "uploads/"  # Change this to your folder path
+
+    # Delete all files (but not subfolders or their contents)
+    for file_path in glob.glob(os.path.join(folder_path, "*")):
+        if os.path.isfile(file_path):
+            os.remove(file_path)
+
+
 if __name__ == "__main__":
-    #print(main())
-    output = '''
-    data/midi/testing/Cymatics Nebula MIDI Collection/Pop_transposed/Cymatics - Wake Up MIDI - G Maj.mid
-    '''
-    input2 = output.replace("Pop_transposed","Pop")
-    output = output.strip()
-    input2 = input2.strip()
-    transpose_to_c_major(input2,output)
+    print("sup")
