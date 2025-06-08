@@ -212,5 +212,37 @@ def help_page():
     return render_template("help_page.html")
 
 
+@app.route("/serve-midi/<filename>")
+def serve_midi(filename):
+    """Serve MIDI file for the HTML MIDI player (without forcing download)"""
+    try:
+        actual_filename = "new_ai_stuff.mid"
+        full_file_path = os.path.abspath(os.path.join("website_folder", "download"))
+        file_path = os.path.join("website_folder/download", actual_filename)
+
+        print(f"Serving MIDI file: {file_path}")
+
+        if not os.path.exists(file_path):
+            print(f"MIDI file not found: {file_path}")
+            return "File not found", 404
+
+        # Serve file without forcing download (for the player)
+        response = send_from_directory(
+            directory=full_file_path,
+            path=actual_filename,
+            as_attachment=False,  # Don't force download
+            mimetype="audio/midi",  # Set proper MIME type
+        )
+
+        # Add CORS headers if needed
+        response.headers["Access-Control-Allow-Origin"] = "*"
+
+        return response
+
+    except Exception as e:
+        print(f"Error serving MIDI file: {e}")
+        return "Error serving file", 500
+
+
 if __name__ == "__main__":
     app.run()

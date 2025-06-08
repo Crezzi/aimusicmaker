@@ -1,55 +1,167 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Download Modified MIDI</title>
+  <title>Generated Music Result</title>
   <style>
     body {
       background-color: #f9f5f1;
-      text-align: center;
-      padding-top: 100px;
       font-family: Arial, sans-serif;
       color: #32394d;
+      margin: 0;
     }
 
-    h1 {
-      margin-bottom: 40px;
+    .header {
+      background-color: #32394d;
+      color: #f9f5f1;
+      padding: 60px 20px;
+      text-align: center;
       font-size: 2.5em;
     }
 
-    .button {
-      background-color: #32394d;
-      color: #f9f5f1;
-      padding: 12px 24px;
-      font-size: 1em;
-      border: none;
-      border-radius: 6px;
-      cursor: pointer;
-      margin: 20px;
+    .content {
+      text-align: center;
+      padding: 50px;
+      max-width: 800px;
+      margin: 0 auto;
     }
 
-    .button:hover {
+    .player-section {
+      background-color: white;
+      padding: 30px;
+      border-radius: 10px;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+      margin: 30px 0;
+    }
+
+    .player-section h2 {
+      margin-top: 0;
+      color: #32394d;
+      font-size: 1.5em;
+    }
+
+    midi-player {
+      display: block;
+      width: 100%;
+      margin: 20px 0;
+    }
+
+    midi-visualizer {
+      display: block;
+      width: 100%;
+      height: 200px;
+      margin: 20px 0;
+    }
+
+    button {
+      background-color: #32394d;
+      color: #f9f5f1;
+      padding: 15px 25px;
+      border: none;
+      border-radius: 5px;
+      font-size: 1em;
+      cursor: pointer;
+      margin: 10px;
+    }
+
+    button:hover {
       background-color: #e07b00;
     }
 
-    .filename {
-      font-size: 1.2em;
-      margin-bottom: 20px;
+    .download-section {
+      margin-top: 30px;
+      padding: 20px;
+      background-color: #e8f4f8;
+      border-radius: 8px;
+    }
+
+    .success-message {
+      background-color: #d4edda;
+      color: #155724;
+      padding: 15px;
+      border-radius: 5px;
+      border: 1px solid #c3e6cb;
+      margin: 20px 0;
+    }
+
+    .controls {
+      margin: 20px 0;
+    }
+
+    .controls button {
+      background-color: #28a745;
+      margin: 5px;
+      padding: 10px 20px;
+    }
+
+    .controls button:hover {
+      background-color: #218838;
     }
   </style>
+  
+  <!-- HTML MIDI Player Scripts -->
+  <script src="https://cdn.jsdelivr.net/combine/npm/tone@14.7.58,npm/@magenta/music@1.23.1/es6/core.js,npm/focus-visible@5,npm/html-midi-player@1.4.0"></script>
 </head>
 <body>
-  <h1>Your MIDI file is ready!</h1>
+  <div class="header">
+    Your AI-Generated Music
+  </div>
 
-  <div class="filename">{{ filename }}</div>
+  <div class="content">
+    <div class="success-message">
+      <strong>Success!</strong> Your MIDI file has been processed and is ready to play!
+    </div>
 
-  <!-- Download button -->
-  <a href="{{ url_for('download_file', filename=filename) }}">
-    <button class="button">Download Modified MIDI</button>
-  </a>
+    <div class="player-section">
+      <h2>🎵 Listen to Your Generated Music</h2>
+      <p>Click play to hear your AI-generated MIDI file:</p>
+      
+      <!-- MIDI Player -->
+      <midi-player 
+        src="/serve-midi/{{ filename }}" 
+        sound-font 
+        visualizer="#myVisualizer">
+      </midi-player>
+      
+      <!-- Piano Roll Visualizer -->
+      <midi-visualizer 
+        type="piano-roll" 
+        id="myVisualizer">
+      </midi-visualizer>
+      
+      <div class="controls">
+        <p><em>Use the controls above to play, pause, and navigate through your music.</em></p>
+      </div>
+    </div>
 
-  <!-- Return to generate page button -->
-  <a href="/upload">
-    <button class="button">Return to Generate New Music</button>
-  </a>
+    <div class="download-section">
+      <h3>💾 Download Your Music</h3>
+      <p>Like what you hear? Download your AI-generated MIDI file:</p>
+      <a href="/download/{{ filename }}">
+        <button>Download MIDI File</button>
+      </a>
+    </div>
+
+    <div style="margin-top: 30px;">
+      <a href="/upload"><button>Generate More Music</button></a>
+      <a href="/"><button>Go Back Home</button></a>
+    </div>
+  </div>
+
+  <script>
+    // Optional: Add some custom JavaScript for enhanced functionality
+    document.addEventListener('DOMContentLoaded', function() {
+      const player = document.querySelector('midi-player');
+      const visualizer = document.querySelector('midi-visualizer');
+      
+      // You can add event listeners for play/pause events if needed
+      player.addEventListener('start', () => {
+        console.log('MIDI playback started');
+      });
+      
+      player.addEventListener('stop', () => {
+        console.log('MIDI playback stopped');
+      });
+    });
+  </script>
 </body>
 </html>
