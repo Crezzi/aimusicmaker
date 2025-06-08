@@ -54,12 +54,20 @@
       margin-top: 20px;
     }
 
-    #preview img {
-      max-width: 150px;
-      max-height: 150px;
-      margin: 10px;
-      border-radius: 10px;
-      border: 2px solid #ccc;
+    #file-list {
+      margin-top: 15px;
+      text-align: left;
+      max-width: 400px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    .file-item {
+      padding: 5px;
+      background-color: #e8e8e8;
+      margin: 5px 0;
+      border-radius: 3px;
+      font-size: 0.9em;
     }
   </style>
 </head>
@@ -72,9 +80,11 @@
     <p>Upload your MIDI files here:</p>
 
     <form id="uploadForm" action="/upload" method="POST" enctype="multipart/form-data" onsubmit="showLoading()">
-      <input type="file" name="file" id="fileInput" onchange="previewImages()" />
+      <input type="file" name="files" id="fileInput" multiple accept=".mid,.midi" onchange="showFileList()" />
       <br>
-      <button type="submit">Upload</button>
+      <div id="file-list"></div>
+      <br>
+      <button type="submit">Upload Files</button>
     </form>
 
     <div id="loading">Uploading... Please wait ⏳</div>
@@ -89,20 +99,18 @@
       document.getElementById("loading").style.display = "block";
     }
 
-    function previewImages() {
-      const preview = document.getElementById("preview");
+    function showFileList() {
+      const fileList = document.getElementById("file-list");
       const files = document.getElementById("fileInput").files;
-      preview.innerHTML = "";
+      fileList.innerHTML = "";
 
-      for (const file of files) {
-        if (file.type.startsWith("image/")) {
-          const reader = new FileReader();
-          reader.onload = function(e) {
-            const img = document.createElement("img");
-            img.src = e.target.result;
-            preview.appendChild(img);
-          };
-          reader.readAsDataURL(file);
+      if (files.length > 0) {
+        fileList.innerHTML = "<strong>Selected files:</strong>";
+        for (let i = 0; i < files.length; i++) {
+          const fileItem = document.createElement("div");
+          fileItem.className = "file-item";
+          fileItem.textContent = `${i + 1}. ${files[i].name}`;
+          fileList.appendChild(fileItem);
         }
       }
     }

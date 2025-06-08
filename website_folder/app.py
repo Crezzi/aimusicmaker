@@ -37,15 +37,27 @@ def allowed_file(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_EXTENSIONS
 
 
-def process_midi_async(input_path, session_id):
-    """Process MIDI file in background thread"""
+def process_midi_async(input_paths, session_id):
+    """Process multiple MIDI files in background thread"""
     global processing_status
     try:
         print(f"Starting processing for session {session_id}")
+        print(f"Processing {len(input_paths)} files: {input_paths}")
         processing_status[session_id] = {"status": "processing", "error": None}
+
+        # Process each file or all files together - depends on your AI functions
+        for i, input_path in enumerate(input_paths):
+            print(f"Processing file {i+1}/{len(input_paths)}: {input_path}")
+            # Update status to show progress
+            processing_status[session_id] = {
+                "status": "processing",
+                "error": None,
+                "progress": f"{i+1}/{len(input_paths)}",
+            }
 
         # Your AI processing functions
         transpose()
+
         # Make sure tensor_AI outputs to the correct location
         tensor_AI(input_dir="website_folder/transposed", output_file="website_folder/download/new_ai_stuff.mid")
 
@@ -53,7 +65,7 @@ def process_midi_async(input_path, session_id):
         processing_status[session_id] = {"status": "complete", "error": None}
         print(f"Processing complete for session {session_id}")
     except Exception as e:
-        print(f"Error processing MIDI: {e}")
+        print(f"Error processing MIDI files: {e}")
         processing_status[session_id] = {"status": "error", "error": str(e)}
 
 
@@ -67,52 +79,60 @@ def upload():
     if request.method == "POST":
         print(request.files)
 
-        # Handle both 'file' and 'files' field names
-        if "file" in request.files:
-            file = request.files["file"]
-        elif "files" in request.files:
-            file = request.files["files"]
-        else:
-            flash("No file selected")
+        # Check if files were uploaded
+        if "files" not in request.files:
+            flash("No files selected")
             return redirect(request.url)
 
-        # Check if file is selected
-        if file.filename == "":
-            flash("No file selected")
+        files = request.files.getlist("files")  # Get list of files
+
+        # Check if at least one file is selected
+        if not files or all(file.filename == "" for file in files):
+            flash("No files selected")
             return redirect(request.url)
 
-        # Check if file is allowed (MIDI only)
-        if not allowed_file(file.filename):
-            flash("Only MIDI files (.mid, .midi) are allowed")
+        uploaded_files = []
+
+        # Process each file
+        for file in files:
+            if file and file.filename != "":
+                # Check if file is allowed (MIDI only)
+                if not allowed_file(file.filename):
+                    flash(f"File '{file.filename}' is not allowed. Only MIDI files (.mid, .midi) are accepted")
+                    continue
+
+                # Secure the filename
+                if not file.filename:
+                    quit()
+                filename = secure_filename(file.filename)
+                input_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
+
+                # Save the uploaded file
+                file.save(input_path)
+                uploaded_files.append(input_path)
+                print(f"Saved file: {filename}")
+
+        # Check if we have any valid files
+        if not uploaded_files:
+            flash("No valid MIDI files were uploaded")
             return redirect(request.url)
 
-        if file:
-            # Secure the filename
-            if not file.filename:
-                print("im awesome")
-                quit()
-            filename = secure_filename(file.filename)
-            input_path = os.path.join(app.config["UPLOAD_FOLDER"], filename)
-            output_filename = f"modified_{filename}"
+        # Create unique session ID for this upload batch
+        session_id = str(int(time.time())) + "_" + str(os.getpid())
+        session["session_id"] = session_id
+        session["output_filename"] = "new_ai_stuff.mid"  # Your AI outputs this filename
+        session["uploaded_files"] = uploaded_files  # Store list of uploaded files
 
-            # Save the uploaded file
-            file.save(input_path)
+        # Initialize processing status
+        global processing_status
+        processing_status[session_id] = {"status": "starting", "error": None}
 
-            # Create unique session ID for this upload
-            session_id = str(int(time.time())) + "_" + str(os.getpid())
-            session["session_id"] = session_id
-            session["output_filename"] = "new_ai_stuff.mid"  # Your AI outputs this filename
+        # Start background processing (you may need to modify this function too)
+        thread = threading.Thread(target=process_midi_async, args=(uploaded_files, session_id))
+        thread.daemon = True
+        thread.start()
 
-            # Initialize processing status
-            global processing_status
-            processing_status[session_id] = {"status": "starting", "error": None}
-
-            # Start background processing
-            thread = threading.Thread(target=process_midi_async, args=(input_path, session_id))
-            thread.daemon = True
-            thread.start()
-
-            return redirect(url_for("loading"))
+        return redirect(url_for("loading"))
 
     return render_template("generate_new_music.html")
 
